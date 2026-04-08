@@ -1,0 +1,3 @@
+[submodule "Assets/Scripts/SensoryRoomCommon"]
+	path = Assets/Scripts/SensoryRoomCommon
+	url = https://github.com/DarkJaslo/SensoryRoomCommon

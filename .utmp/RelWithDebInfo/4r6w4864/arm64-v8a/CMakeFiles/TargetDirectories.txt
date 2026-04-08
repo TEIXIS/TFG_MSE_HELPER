@@ -1,0 +1,5 @@
+D:/AlexRiosProjects/Jon/SensoryRoomHelper/.utmp/RelWithDebInfo/4r6w4864/arm64-v8a/CMakeFiles/edit_cache.dir
+D:/AlexRiosProjects/Jon/SensoryRoomHelper/.utmp/RelWithDebInfo/4r6w4864/arm64-v8a/CMakeFiles/rebuild_cache.dir
+D:/AlexRiosProjects/Jon/SensoryRoomHelper/.utmp/RelWithDebInfo/4r6w4864/arm64-v8a/GameActivity/CMakeFiles/game.dir
+D:/AlexRiosProjects/Jon/SensoryRoomHelper/.utmp/RelWithDebInfo/4r6w4864/arm64-v8a/GameActivity/CMakeFiles/edit_cache.dir
+D:/AlexRiosProjects/Jon/SensoryRoomHelper/.utmp/RelWithDebInfo/4r6w4864/arm64-v8a/GameActivity/CMakeFiles/rebuild_cache.dir

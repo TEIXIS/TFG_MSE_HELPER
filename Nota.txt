@@ -1,0 +1,11 @@
+TabletSelectionManager.cs: El cerebro de la tablet.
+
+ElementButton.cs: Los botones de la parrilla de colores.
+
+TabletTeleportButton.cs: Las chinchetas de viaje para mover al usuario.
+
+Connection.cs: Tu motor de red principal por Sockets.
+
+LANDiscovery.cs: El radar para encontrar las gafas por Wi-Fi automáticamente.
+
+DisplayServers.cs: La interfaz que muestra las gafas encontradas y te deja conectarte.
