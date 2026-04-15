@@ -1,5 +1,5 @@
 public static class SessionUser
 {
-    public static string SelectedUserId = null;
+    public static int SelectedUserId = -1;
     public static string SelectedUserName = null;
 }

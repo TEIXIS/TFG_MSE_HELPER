@@ -10,6 +10,8 @@ public class UserSelectScreen : MonoBehaviour
     public Transform listContent;
     public GameObject userRowPrefab;
     public TMP_InputField createInput;
+    public TMP_InputField ageInput;
+    public Toggle independentToggle;
     public Button createButton;
     public TMP_Text selectedUserText;
     public TMP_Text statusText;
@@ -32,12 +34,10 @@ public class UserSelectScreen : MonoBehaviour
     private IEnumerator LoadUsersFromServer()
     {
         SetStatus("Cargando usuarios...");
-        Debug.Log("Intentando cargar usuarios...");
 
         yield return StartCoroutine(UserAPI.GetUsers(
             onSuccess: loadedUsers =>
             {
-                Debug.Log("Usuarios recibidos: " + loadedUsers.Length);
                 users.Clear();
                 users.AddRange(loadedUsers);
                 RefreshList();
@@ -53,14 +53,11 @@ public class UserSelectScreen : MonoBehaviour
 
     private void RefreshList()
     {
-        Debug.Log("RefreshList users = " + users.Count);
-
         for (int i = listContent.childCount - 1; i >= 0; i--)
             Destroy(listContent.GetChild(i).gameObject);
 
         foreach (var user in users)
         {
-            Debug.Log("Creando fila para " + user.name);
             GameObject row = Instantiate(userRowPrefab, listContent, false);
             UserRowUI rowUI = row.GetComponent<UserRowUI>();
 
@@ -71,31 +68,49 @@ public class UserSelectScreen : MonoBehaviour
             }
 
             rowUI.Bind(
-                user.name,
+                user,
                 () => SelectUser(user),
                 () => StartCoroutine(DeleteUserFromServer(user))
             );
         }
 
         LayoutRebuilder.ForceRebuildLayoutImmediate((RectTransform)listContent);
-        Debug.Log("childCount final = " + listContent.childCount);
     }
+
     private void CreateUserFromInput()
     {
-        string name = createInput != null ? createInput.text.Trim() : "";
+        string nom = createInput != null ? createInput.text.Trim() : "";
+        string ageString = ageInput != null ? ageInput.text.Trim() : "";
 
-        if (string.IsNullOrEmpty(name))
+        if (string.IsNullOrEmpty(nom))
         {
             SetStatus("Introduce un nombre.");
             return;
         }
 
+        if (string.IsNullOrEmpty(ageString) || !int.TryParse(ageString, out int edat))
+        {
+            SetStatus("Introduce una edad válida.");
+            return;
+        }
+
+        if (edat < 0 || edat > 120)
+        {
+            SetStatus("La edad no es válida.");
+            return;
+        }
+
+        bool independent = independentToggle != null && independentToggle.isOn;
+
         StartCoroutine(UserAPI.CreateUser(
-            name,
+            nom,
+            edat,
+            independent,
             onSuccess: () =>
             {
-                if (createInput != null)
-                    createInput.text = "";
+                if (createInput != null) createInput.text = "";
+                if (ageInput != null) ageInput.text = "";
+                if (independentToggle != null) independentToggle.isOn = true;
 
                 StartCoroutine(LoadUsersFromServer());
             },
@@ -111,12 +126,12 @@ public class UserSelectScreen : MonoBehaviour
         SetStatus("Eliminando usuario...");
 
         yield return StartCoroutine(UserAPI.DeleteUser(
-            user.id,
+            user.id_usuari,
             onSuccess: () =>
             {
-                if (SessionUser.SelectedUserId == user.id)
+                if (SessionUser.SelectedUserId == user.id_usuari)
                 {
-                    SessionUser.SelectedUserId = null;
+                    SessionUser.SelectedUserId = -1;
                     SessionUser.SelectedUserName = null;
                 }
 
@@ -132,8 +147,8 @@ public class UserSelectScreen : MonoBehaviour
 
     private void SelectUser(User user)
     {
-        SessionUser.SelectedUserId = user.id;
-        SessionUser.SelectedUserName = user.name;
+        SessionUser.SelectedUserId = user.id_usuari;
+        SessionUser.SelectedUserName = user.nom;
 
         RefreshSelectedLabel();
         uiManager.GoToConnectionCanvas();

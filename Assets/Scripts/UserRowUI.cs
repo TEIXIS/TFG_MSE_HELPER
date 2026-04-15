@@ -6,12 +6,24 @@ using UnityEngine.UI;
 public class UserRowUI : MonoBehaviour
 {
     public TMP_Text nameText;
+    public TMP_Text ageText;
+    public Toggle independentToggle;
     public Button selectButton;
     public Button deleteButton;
 
-    public void Bind(string userName, Action onSelect, Action onDelete)
+    public void Bind(User user, Action onSelect, Action onDelete)
     {
-        nameText.text = userName;
+        if (nameText != null)
+            nameText.text = user.nom;
+
+        if (ageText != null)
+            ageText.text = user.edat.ToString();
+
+        if (independentToggle != null)
+        {
+            independentToggle.isOn = user.independent;
+            independentToggle.interactable = false;
+        }
 
         selectButton.onClick.RemoveAllListeners();
         deleteButton.onClick.RemoveAllListeners();

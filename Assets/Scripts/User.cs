@@ -3,7 +3,8 @@ using System;
 [Serializable]
 public class User
 {
-    public string id;
-    public string name;
-    public bool enabled;
+    public int id_usuari;
+    public string nom;
+    public int edat;
+    public bool independent;
 }
