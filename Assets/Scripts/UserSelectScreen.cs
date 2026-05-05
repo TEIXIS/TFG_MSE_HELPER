@@ -9,18 +9,31 @@ public class UserSelectScreen : MonoBehaviour
     [Header("UI")]
     public Transform listContent;
     public GameObject userRowPrefab;
+
+    [Header("Crear usuario")]
     public TMP_InputField createInput;
-    public TMP_InputField ageInput;
     public Toggle independentToggle;
+
+    [Tooltip("Marcado = Infant. Desmarcado = Adult.")]
+    public Toggle infantilToggle;
+
+    public Toggle menuHandsToggle;
+    public Toggle particlesToggle;
     public Button createButton;
+
+    [Header("Estado")]
     public TMP_Text selectedUserText;
     public TMP_Text statusText;
     public UIManager uiManager;
+    public SessionTracker sessionTracker;
 
     private readonly List<User> users = new();
 
     private void OnEnable()
     {
+        if (sessionTracker == null)
+            sessionTracker = SessionTracker.GetOrCreate();
+
         if (createButton != null)
         {
             createButton.onClick.RemoveAllListeners();
@@ -40,6 +53,7 @@ public class UserSelectScreen : MonoBehaviour
             {
                 users.Clear();
                 users.AddRange(loadedUsers);
+
                 RefreshList();
                 SetStatus(users.Count == 0 ? "No hay usuarios." : "");
             },
@@ -56,7 +70,7 @@ public class UserSelectScreen : MonoBehaviour
         for (int i = listContent.childCount - 1; i >= 0; i--)
             Destroy(listContent.GetChild(i).gameObject);
 
-        foreach (var user in users)
+        foreach (User user in users)
         {
             GameObject row = Instantiate(userRowPrefab, listContent, false);
             UserRowUI rowUI = row.GetComponent<UserRowUI>();
@@ -69,8 +83,9 @@ public class UserSelectScreen : MonoBehaviour
 
             rowUI.Bind(
                 user,
-                () => SelectUser(user),
-                () => StartCoroutine(DeleteUserFromServer(user))
+                onSelect: SelectUser,
+                onSave: editedUser => StartCoroutine(UpdateUserOnServer(editedUser)),
+                onDelete: userToDelete => StartCoroutine(DeleteUserFromServer(userToDelete))
             );
         }
 
@@ -80,7 +95,6 @@ public class UserSelectScreen : MonoBehaviour
     private void CreateUserFromInput()
     {
         string nom = createInput != null ? createInput.text.Trim() : "";
-        string ageString = ageInput != null ? ageInput.text.Trim() : "";
 
         if (string.IsNullOrEmpty(nom))
         {
@@ -88,35 +102,66 @@ public class UserSelectScreen : MonoBehaviour
             return;
         }
 
-        if (string.IsNullOrEmpty(ageString) || !int.TryParse(ageString, out int edat))
-        {
-            SetStatus("Introduce una edad válida.");
-            return;
-        }
-
-        if (edat < 0 || edat > 120)
-        {
-            SetStatus("La edad no es válida.");
-            return;
-        }
-
         bool independent = independentToggle != null && independentToggle.isOn;
+
+        // En la UI usamos "infantil".
+        // En la BD guardamos lo contrario: entorn_adult.
+        bool esInfantil = infantilToggle != null && infantilToggle.isOn;
+        bool entornAdult = !esInfantil;
+
+        bool menuMansActiu = menuHandsToggle == null || menuHandsToggle.isOn;
+        bool particulesActives = particlesToggle == null || particlesToggle.isOn;
+
+        SetStatus("Creando usuario...");
 
         StartCoroutine(UserAPI.CreateUser(
             nom,
-            edat,
+            entornAdult,
             independent,
+            menuMansActiu,
+            particulesActives,
             onSuccess: () =>
             {
-                if (createInput != null) createInput.text = "";
-                if (ageInput != null) ageInput.text = "";
-                if (independentToggle != null) independentToggle.isOn = true;
+                if (createInput != null)
+                    createInput.text = "";
+
+                if (independentToggle != null)
+                    independentToggle.isOn = false;
+
+                if (infantilToggle != null)
+                    infantilToggle.isOn = false;
+
+                if (menuHandsToggle != null)
+                    menuHandsToggle.isOn = true;
+
+                if (particlesToggle != null)
+                    particlesToggle.isOn = true;
 
                 StartCoroutine(LoadUsersFromServer());
             },
             onError: err =>
             {
+                Debug.LogError("Error creando usuario: " + err);
                 SetStatus("Error creando usuario: " + err);
+            }
+        ));
+    }
+
+    private IEnumerator UpdateUserOnServer(User editedUser)
+    {
+        SetStatus("Guardando cambios...");
+
+        yield return StartCoroutine(UserAPI.UpdateUser(
+            editedUser,
+            onSuccess: () =>
+            {
+                SetStatus("Usuario actualizado.");
+                StartCoroutine(LoadUsersFromServer());
+            },
+            onError: err =>
+            {
+                Debug.LogError("Error actualizando usuario: " + err);
+                SetStatus("Error actualizando usuario: " + err);
             }
         ));
     }
@@ -140,6 +185,7 @@ public class UserSelectScreen : MonoBehaviour
             },
             onError: err =>
             {
+                Debug.LogError("Error eliminando usuario: " + err);
                 SetStatus("Error eliminando usuario: " + err);
             }
         ));
@@ -151,7 +197,8 @@ public class UserSelectScreen : MonoBehaviour
         SessionUser.SelectedUserName = user.nom;
 
         RefreshSelectedLabel();
-        uiManager.GoToConnectionCanvas();
+        if (uiManager != null)
+            uiManager.GoToConnectionCanvas();
     }
 
     private void RefreshSelectedLabel()

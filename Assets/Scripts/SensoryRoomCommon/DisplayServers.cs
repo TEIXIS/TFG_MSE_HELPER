@@ -205,6 +205,11 @@ public class DisplayServers : MonoBehaviour
 		// Exit this menu if connected
 		if (connection.ConnectToServer(ipAddress))
 		{
+			if (SessionUser.SelectedUserId > 0)
+				connection.Send("USER:" + SessionUser.SelectedUserId);
+			else
+				Debug.LogWarning("Conectado al casco, pero no hay usuario seleccionado para enviar.");
+
 			feedbackText.gameObject.SetActive(false);
 			uiManager.GoToMainCanvas();
 		}
