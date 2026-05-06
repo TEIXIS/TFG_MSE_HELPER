@@ -23,10 +23,11 @@ public class UserRowUI : MonoBehaviour
     public Button selectButton;
     public Button saveButton;
     public Button deleteButton;
+    public Button infoButton;
 
     private User currentUser;
 
-    public void Bind(User user, Action<User> onSelect, Action<User> onSave, Action<User> onDelete)
+    public void Bind(User user, Action<User> onSelect, Action<User> onSave, Action<User> onDelete, Action<User> onInfo = null)
     {
         currentUser = user;
 
@@ -67,6 +68,12 @@ public class UserRowUI : MonoBehaviour
         {
             deleteButton.onClick.RemoveAllListeners();
             deleteButton.onClick.AddListener(() => onDelete?.Invoke(currentUser));
+        }
+
+        if (infoButton != null)
+        {
+            infoButton.onClick.RemoveAllListeners();
+            infoButton.onClick.AddListener(() => onInfo?.Invoke(currentUser));
         }
     }
 

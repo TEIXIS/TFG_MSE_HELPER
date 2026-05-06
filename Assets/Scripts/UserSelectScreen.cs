@@ -26,6 +26,7 @@ public class UserSelectScreen : MonoBehaviour
     public TMP_Text statusText;
     public UIManager uiManager;
     public SessionTracker sessionTracker;
+    public UserSessionInfoCanvas sessionInfoCanvas;
 
     private readonly List<User> users = new();
 
@@ -85,7 +86,8 @@ public class UserSelectScreen : MonoBehaviour
                 user,
                 onSelect: SelectUser,
                 onSave: editedUser => StartCoroutine(UpdateUserOnServer(editedUser)),
-                onDelete: userToDelete => StartCoroutine(DeleteUserFromServer(userToDelete))
+                onDelete: userToDelete => StartCoroutine(DeleteUserFromServer(userToDelete)),
+                onInfo: ShowUserSessions
             );
         }
 
@@ -199,6 +201,18 @@ public class UserSelectScreen : MonoBehaviour
         RefreshSelectedLabel();
         if (uiManager != null)
             uiManager.GoToConnectionCanvas();
+    }
+
+    private void ShowUserSessions(User user)
+    {
+        if (sessionInfoCanvas == null)
+        {
+            Debug.LogWarning("No hay UserSessionInfoCanvas asignado en UserSelectScreen.");
+            SetStatus("Falta asignar el canvas de sesiones.");
+            return;
+        }
+
+        sessionInfoCanvas.Show(user);
     }
 
     private void RefreshSelectedLabel()

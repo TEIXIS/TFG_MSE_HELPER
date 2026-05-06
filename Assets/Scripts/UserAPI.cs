@@ -132,6 +132,52 @@ public class UserAPI : MonoBehaviour
         public LastSessionElement[] vr_elements;
     }
 
+    [Serializable]
+    public class SessionSummary
+    {
+        public int id_sessio;
+        public string postura_inicial;
+        public string postura_final;
+        public string postura_actual;
+        public bool menu_mans_actiu;
+        public bool particules_mans_actives;
+        public double durada_total_segons;
+        public double durada_tutorial_segons;
+        public double durada_preparacio_segons;
+        public double durada_vr_segons;
+        public bool ha_entrat_tutorial;
+        public bool ha_entrat_preparacio;
+        public bool ha_entrat_vr;
+        public string observacions;
+        public string iniciada_a;
+        public string finalitzada_a;
+        public string creat_a;
+        public string actualitzat_a;
+    }
+
+    [Serializable]
+    public class SessionPhaseInfo
+    {
+        public int id_sessio_fase;
+        public string fase;
+        public double durada_segons;
+        public string iniciada_a;
+        public string finalitzada_a;
+    }
+
+    [Serializable]
+    public class SessionElementInfo
+    {
+        public string id_element;
+        public bool seleccionat;
+        public int numero_posicio;
+        public double durada_segons;
+        public double posicio_x;
+        public double posicio_y;
+        public double posicio_z;
+        public double rotacio_y;
+    }
+
     private static string Url(string path)
     {
         return baseUrl.TrimEnd('/') + path;
@@ -279,6 +325,57 @@ public class UserAPI : MonoBehaviour
         {
             onError?.Invoke(BuildError(req));
         }
+    }
+
+    public static IEnumerator GetUserSessions(int userId, Action<SessionSummary[]> onSuccess, Action<string> onError = null)
+    {
+        if (userId <= 0)
+        {
+            onError?.Invoke("Id de usuario invalido: " + userId);
+            yield break;
+        }
+
+        yield return GetJsonArray(
+            Url("/users/" + userId + "/sessions"),
+            onSuccess,
+            onError
+        );
+    }
+
+    public static IEnumerator GetSessionPhases(int sessionId, Action<SessionPhaseInfo[]> onSuccess, Action<string> onError = null)
+    {
+        yield return GetJsonArray(
+            Url("/sessions/" + sessionId + "/phases"),
+            onSuccess,
+            onError
+        );
+    }
+
+    public static IEnumerator GetSessionVrElements(int sessionId, Action<SessionElementInfo[]> onSuccess, Action<string> onError = null)
+    {
+        yield return GetJsonArray(
+            Url("/sessions/" + sessionId + "/vr-elements"),
+            onSuccess,
+            onError
+        );
+    }
+
+    public static IEnumerator GetSessionPreparationElements(int sessionId, Action<SessionElementInfo[]> onSuccess, Action<string> onError = null)
+    {
+        yield return GetJsonArray(
+            Url("/sessions/" + sessionId + "/preparation-elements"),
+            onSuccess,
+            onError
+        );
+    }
+
+    public static IEnumerator GetSessionTutorialElements(int sessionId, Action<SessionElementInfo[]> onSuccess, Action<string> onError = null)
+    {
+        yield return GetJsonArray(
+            Url("/sessions/" + sessionId + "/tutorial-elements"),
+            onSuccess,
+            onError
+        );
     }
 
     public static IEnumerator EndSession(
@@ -564,6 +661,29 @@ public class UserAPI : MonoBehaviour
         else
         {
             onError?.Invoke(BuildError(req));
+        }
+    }
+
+    private static IEnumerator GetJsonArray<T>(string url, Action<T[]> onSuccess, Action<string> onError)
+    {
+        Debug.Log("[API] GET " + url);
+
+        using UnityWebRequest req = UnityWebRequest.Get(url);
+        yield return req.SendWebRequest();
+
+        if (req.result != UnityWebRequest.Result.Success)
+        {
+            onError?.Invoke(BuildError(req));
+            yield break;
+        }
+
+        try
+        {
+            onSuccess?.Invoke(JsonHelper.FromJson<T>(req.downloadHandler.text));
+        }
+        catch (Exception e)
+        {
+            onError?.Invoke("Error parseando respuesta: " + e.Message + "\nRespuesta: " + req.downloadHandler.text);
         }
     }
 

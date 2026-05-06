@@ -8,7 +8,7 @@ public class UIManager : MonoBehaviour
     //public GameObject soundCanvas;
     //public GameObject environmentCanvas;
     public GameObject userSelectCanvas;
-
+    public GameObject userInfoCanvas;
     private void Start()
     {
         if (userSelectCanvas != null)
@@ -27,13 +27,15 @@ public class UIManager : MonoBehaviour
 		//environmentCanvas.SetActive(false);
         userSelectCanvas.SetActive(false);
         connectionCanvas.SetActive(false);
-    
+        userInfoCanvas.SetActive(false);
 		canvas.SetActive(true);
     }
 
     public void GoToConnectionCanvas() => ShowCanvas(connectionCanvas);
     public void GoToUserSelectCanvas() => ShowCanvas(userSelectCanvas);
     public void GoToMainCanvas() => ShowCanvas(mainCanvas);
+
+    public void GoToUserInfoCanvas() => ShowCanvas(userInfoCanvas);
   //  public void GoToLightCanvas() => ShowCanvas(lightCanvas);
  //   public void GoToSoundCanvas() => ShowCanvas(soundCanvas);
   //  public void GoToEnvironmentCanvas() => ShowCanvas(environmentCanvas);
