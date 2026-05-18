@@ -37,9 +37,11 @@ public class DisplayServers : MonoBehaviour
 
 	[Header("Search timing")]
 	public float searchTimeoutSeconds = 20f;
+	public bool autoConnectSingleServer = true;
 
 	private float searchTimer = 0f;
 	private bool showingNoServers = false;
+	private bool connecting;
 
 
 	private float timer;
@@ -124,6 +126,7 @@ public class DisplayServers : MonoBehaviour
 	{
 		searchTimer = 0f;
 		showingNoServers = false;
+		connecting = false;
 
 		// UI buscando
 		loadingText.text = text_lookingForServers;
@@ -195,6 +198,10 @@ public class DisplayServers : MonoBehaviour
 
 	private IEnumerator ConnectToServer(string ipAddress) 
 	{
+		if (connecting)
+			yield break;
+
+		connecting = true;
 		feedbackText.text = text_connectingToServer;
 		feedbackText.gameObject.SetActive(true);
 
@@ -206,12 +213,20 @@ public class DisplayServers : MonoBehaviour
 		if (connection.ConnectToServer(ipAddress))
 		{
 			if (SessionUser.SelectedUserId > 0)
+			{
 				connection.Send("USER:" + SessionUser.SelectedUserId);
+				connection.Send("ROOM:" + SessionUser.SelectedRoomType);
+				connection.Send(SessionUser.SelectedInitialPosture == "SENTADO" ? "POSTURA:SENTADO" : "POSTURA:DE_PIE");
+			}
 			else
 				Debug.LogWarning("Conectado al casco, pero no hay usuario seleccionado para enviar.");
 
 			feedbackText.gameObject.SetActive(false);
 			uiManager.GoToMainCanvas();
+		}
+		else
+		{
+			connecting = false;
 		}
 	}
 
@@ -237,6 +252,15 @@ public class DisplayServers : MonoBehaviour
 			{
 				StartCoroutine(ConnectToServer(ipAddress));				
 			});
+		}
+
+		if (autoConnectSingleServer && !connecting && SessionUser.SelectedUserId > 0 && count == 1)
+		{
+			foreach (var kv in lanDiscovery.discoveredServers)
+			{
+				StartCoroutine(ConnectToServer(kv.Value));
+				break;
+			}
 		}
 
 		return count;

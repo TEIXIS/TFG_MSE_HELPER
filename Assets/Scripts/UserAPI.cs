@@ -12,6 +12,8 @@ public class UserAPI : MonoBehaviour
     private class CreateUserRequest
     {
         public string nom;
+        public string tipus_sala;
+        public string postura_inicial;
         public bool independent;
         public bool entorn_adult;
         public bool menu_mans_actiu;
@@ -22,6 +24,8 @@ public class UserAPI : MonoBehaviour
     private class UpdateUserRequest
     {
         public string nom;
+        public string tipus_sala;
+        public string postura_inicial;
         public bool independent;
         public bool entorn_adult;
         public bool menu_mans_actiu;
@@ -183,6 +187,19 @@ public class UserAPI : MonoBehaviour
         return baseUrl.TrimEnd('/') + path;
     }
 
+    private static string NormalizeRoomType(string tipusSala, bool entornAdult)
+    {
+        if (tipusSala == "blanca" || tipusSala == "adult" || tipusSala == "infantil")
+            return tipusSala;
+
+        return entornAdult ? "adult" : "infantil";
+    }
+
+    private static string NormalizePosture(string postura)
+    {
+        return postura == "SENTADO" ? "SENTADO" : "DE_PIE";
+    }
+
     public static IEnumerator GetUsers(Action<User[]> onSuccess, Action<string> onError = null)
     {
         using UnityWebRequest req = UnityWebRequest.Get(Url("/users"));
@@ -208,6 +225,8 @@ public class UserAPI : MonoBehaviour
 
     public static IEnumerator CreateUser(
         string nom,
+        string tipusSala,
+        string posturaInicial,
         bool entornAdult,
         bool independent,
         bool menuMansActiu,
@@ -218,6 +237,8 @@ public class UserAPI : MonoBehaviour
         CreateUserRequest data = new CreateUserRequest
         {
             nom = nom,
+            tipus_sala = NormalizeRoomType(tipusSala, entornAdult),
+            postura_inicial = NormalizePosture(posturaInicial),
             independent = independent,
             entorn_adult = entornAdult,
             menu_mans_actiu = menuMansActiu,
@@ -241,6 +262,8 @@ public class UserAPI : MonoBehaviour
         UpdateUserRequest data = new UpdateUserRequest
         {
             nom = user.nom,
+            tipus_sala = NormalizeRoomType(user.tipus_sala, user.entorn_adult),
+            postura_inicial = NormalizePosture(user.postura_inicial),
             independent = user.independent,
             entorn_adult = user.entorn_adult,
             menu_mans_actiu = user.menu_mans_actiu,

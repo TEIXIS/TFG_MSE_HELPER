@@ -107,6 +107,13 @@ public class SessionTracker : MonoBehaviour
         SendSettingsSnapshot();
     }
 
+    public void ApplyInitialSettings(bool sentado, bool menuHandsActive, bool handParticlesActive)
+    {
+        currentPosture = sentado ? "SENTADO" : "DE_PIE";
+        currentMenuHandsActive = menuHandsActive;
+        currentHandParticlesActive = handParticlesActive;
+    }
+
     public void SetMenuHandsActive(bool active)
     {
         currentMenuHandsActive = active;

@@ -11,10 +11,24 @@ public struct ElementoEspectador
 
 public class TabletMirrorManager : MonoBehaviour
 {
+    private const string RoomWhite = "blanca";
+    private const string RoomAdult = "adult";
+    private const string RoomChild = "infantil";
+
     [Header("Cámaras y UI")]
     public Transform camaraEspectador;
     public GameObject pantallaUI;
     public bool isPantallaActiva = false;
+    [Tooltip("Contenedor donde se instanciara la sala del visor. Si se deja vacio, se busca MundoVR_Tablet.")]
+    public Transform contenedorMundoVR;
+
+    [Header("Prefabs de Sala")]
+    [Tooltip("Prefab que se vera en la tablet cuando el usuario tenga sala blanca.")]
+    public GameObject prefabHabBlanca;
+    [Tooltip("Prefab que se vera en la tablet cuando el usuario tenga sala adulta.")]
+    public GameObject prefabHabAdult;
+    [Tooltip("Prefab que se vera en la tablet cuando el usuario tenga sala infantil.")]
+    public GameObject prefabHabInfantil;
 
     [Header("Base de Datos (Clones 3D)")]
     public List<ElementoEspectador> baseDatosClones;
@@ -29,11 +43,15 @@ public class TabletMirrorManager : MonoBehaviour
     private bool primeraVez = true; // Para evitar que la cámara "vuele" desde lejos al encenderla
 
     private List<GameObject> clonesEnEscena = new List<GameObject>();
+    private GameObject salaEnEscena;
+    private string tipoSalaEnEscena;
     private int capaVR;
 
     void Start()
     {
         capaVR = LayerMask.NameToLayer("MundoVR_Tablet");
+        ResolverContenedorMundoVR();
+        OcultarSalasFijasIniciales();
         SetPantallaActiva(false);
     }
 
@@ -103,6 +121,7 @@ public class TabletMirrorManager : MonoBehaviour
     {
         foreach (GameObject obj in clonesEnEscena) { Destroy(obj); }
         clonesEnEscena.Clear();
+        ActualizarSalaEspectador(esTutorial);
 
         if (string.IsNullOrEmpty(paqueteDatos)) return;
 
@@ -130,6 +149,93 @@ public class TabletMirrorManager : MonoBehaviour
         }
     }
 
+
+
+    private void ResolverContenedorMundoVR()
+    {
+        if (contenedorMundoVR != null)
+            return;
+
+        GameObject contenedor = GameObject.Find("MundoVR_Tablet");
+        if (contenedor != null)
+            contenedorMundoVR = contenedor.transform;
+    }
+
+    private void OcultarSalasFijasIniciales()
+    {
+        if (contenedorMundoVR == null)
+            return;
+
+        foreach (Transform child in contenedorMundoVR)
+        {
+            string nombre = child.name.ToLowerInvariant();
+            if (nombre.Contains("sensoryroom") || nombre.Contains("hab") || nombre.Contains("room"))
+                child.gameObject.SetActive(false);
+        }
+    }
+    private void ActualizarSalaEspectador(bool esTutorial)
+    {
+        if (esTutorial)
+        {
+            DestruirSalaEspectador();
+            return;
+        }
+
+        string tipoSala = NormalizarTipoSala(SessionUser.SelectedRoomType);
+        GameObject prefabSala = ObtenerPrefabSala(tipoSala);
+
+        if (prefabSala == null)
+        {
+            DestruirSalaEspectador();
+            return;
+        }
+
+        if (salaEnEscena != null && tipoSalaEnEscena == tipoSala)
+            return;
+
+        DestruirSalaEspectador();
+
+        salaEnEscena = contenedorMundoVR != null
+            ? Instantiate(prefabSala, contenedorMundoVR)
+            : Instantiate(prefabSala, Vector3.zero, Quaternion.identity);
+        salaEnEscena.transform.localPosition = Vector3.zero;
+        salaEnEscena.transform.localRotation = Quaternion.identity;
+        tipoSalaEnEscena = tipoSala;
+        ForzarCapaMundoVR(salaEnEscena.transform, capaVR);
+    }
+
+    private void DestruirSalaEspectador()
+    {
+        if (salaEnEscena != null)
+            Destroy(salaEnEscena);
+
+        salaEnEscena = null;
+        tipoSalaEnEscena = null;
+    }
+
+    private string NormalizarTipoSala(string tipoSala)
+    {
+        string valor = (tipoSala ?? "").Trim().ToLowerInvariant();
+
+        if (valor == RoomAdult || valor.Contains("adult"))
+            return RoomAdult;
+
+        if (valor == RoomChild || valor.Contains("infant"))
+            return RoomChild;
+
+        return RoomWhite;
+    }
+
+    private GameObject ObtenerPrefabSala(string tipoSala)
+    {
+        if (tipoSala == RoomAdult && prefabHabAdult != null)
+            return prefabHabAdult;
+
+        if (tipoSala == RoomChild && prefabHabInfantil != null)
+            return prefabHabInfantil;
+
+        return prefabHabBlanca;
+    }
     private void ForzarCapaMundoVR(Transform objeto, int idCapa)
     {
         objeto.gameObject.layer = idCapa;

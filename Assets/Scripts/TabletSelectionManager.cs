@@ -84,16 +84,14 @@ public class TabletSelectionManager : MonoBehaviour
         ActualizarContadorUI();
         // APAGAMOS LOS TELEPORTS (No hacen falta aqui)
         ActualizarVisibilidadTeleports(false);
+        if (SessionUser.SelectedUserId > 0)
+            posturaActual = SessionUser.SelectedInitialPosture == "SENTADO" ? PosturaUsuario.Sentado : PosturaUsuario.DePie;
+
         ActualizarSpritesPostura();
         ActualizarSpriteMenuVR();
         ActualizarSpriteParticulas();
 
-        if (SessionUser.SelectedUserId <= 0)
-        {
-            sessionTracker.SetPosture(posturaActual == PosturaUsuario.Sentado);
-            sessionTracker.SetMenuHandsActive(menuVRPermitido);
-            sessionTracker.SetHandParticlesActive(particulasPermitidas);
-        }
+        sessionTracker.ApplyInitialSettings(posturaActual == PosturaUsuario.Sentado, menuVRPermitido, particulasPermitidas);
 
         inicializado = true;
 
@@ -111,6 +109,8 @@ public class TabletSelectionManager : MonoBehaviour
         }
 
         connectionScript.Send("USER:" + userId);
+        connectionScript.Send("ROOM:" + SessionUser.SelectedRoomType);
+        connectionScript.Send(SessionUser.SelectedInitialPosture == "SENTADO" ? "POSTURA:SENTADO" : "POSTURA:DE_PIE");
     }
 
     // ========================================================

@@ -5,16 +5,26 @@ using UnityEngine.UI;
 
 public class UserRowUI : MonoBehaviour
 {
+    private const string RoomWhite = "blanca";
+    private const string RoomAdult = "adult";
+    private const string RoomChild = "infantil";
+    private const string StandingPosture = "DE_PIE";
+    private const string SittingPosture = "SENTADO";
+
     [Header("Textos")]
     public TMP_Text nameText;
     public TMP_InputField nameInput;
     public TMP_Text environmentText;
+    public TMP_Text postureText;
 
     [Header("Checks")]
     public Toggle independentToggle;
 
     [Tooltip("Marcado = Infant. Desmarcado = Adult.")]
     public Toggle infantilToggle;
+    public Toggle whiteRoomToggle;
+    public Toggle adultRoomToggle;
+    public Toggle sittingToggle;
 
     public Toggle menuHandsToggle;
     public Toggle particlesToggle;
@@ -38,19 +48,35 @@ public class UserRowUI : MonoBehaviour
             nameInput.text = user.nom;
 
         if (environmentText != null)
-            environmentText.text = user.entorn_adult ? "Adult" : "Infant";
+            environmentText.text = RoomLabel(GetRoomType(user));
+
+        if (postureText != null)
+            postureText.text = IsSitting(user) ? "Sentado" : "De pie";
 
         if (independentToggle != null)
-            independentToggle.isOn = user.independent;
+        {
+            independentToggle.onValueChanged.RemoveAllListeners();
+            independentToggle.SetIsOnWithoutNotify(user.independent);
+            independentToggle.onValueChanged.AddListener(_ => onSave?.Invoke(GetEditedUser()));
+        }
 
         if (infantilToggle != null)
-            infantilToggle.isOn = !user.entorn_adult;
+            infantilToggle.SetIsOnWithoutNotify(GetRoomType(user) == RoomChild);
+
+        if (whiteRoomToggle != null)
+            whiteRoomToggle.SetIsOnWithoutNotify(GetRoomType(user) == RoomWhite);
+
+        if (adultRoomToggle != null)
+            adultRoomToggle.SetIsOnWithoutNotify(GetRoomType(user) == RoomAdult);
+
+        if (sittingToggle != null)
+            sittingToggle.SetIsOnWithoutNotify(IsSitting(user));
 
         if (menuHandsToggle != null)
-            menuHandsToggle.isOn = user.menu_mans_actiu;
+            menuHandsToggle.SetIsOnWithoutNotify(true);
 
         if (particlesToggle != null)
-            particlesToggle.isOn = user.particules_mans_actives;
+            particlesToggle.SetIsOnWithoutNotify(true);
 
         if (selectButton != null)
         {
@@ -97,19 +123,61 @@ public class UserRowUI : MonoBehaviour
                 ? independentToggle.isOn
                 : currentUser.independent,
 
-            entorn_adult = infantilToggle != null
-                ? !infantilToggle.isOn
-                : currentUser.entorn_adult,
+            tipus_sala = GetEditedRoomType(),
+            postura_inicial = sittingToggle != null && sittingToggle.isOn ? SittingPosture : GetPosture(currentUser),
+            entorn_adult = GetEditedRoomType() == RoomAdult,
 
-            menu_mans_actiu = menuHandsToggle != null
-                ? menuHandsToggle.isOn
-                : currentUser.menu_mans_actiu,
+            menu_mans_actiu = true,
 
-            particules_mans_actives = particlesToggle != null
-                ? particlesToggle.isOn
-                : currentUser.particules_mans_actives,
+            particules_mans_actives = true,
 
             actiu = currentUser.actiu
         };
+    }
+
+    private string GetEditedRoomType()
+    {
+        if (whiteRoomToggle != null && whiteRoomToggle.isOn)
+            return RoomWhite;
+
+        if (adultRoomToggle != null && adultRoomToggle.isOn)
+            return RoomAdult;
+
+        if (infantilToggle != null && infantilToggle.isOn)
+            return RoomChild;
+
+        return GetRoomType(currentUser);
+    }
+
+    private static string GetRoomType(User user)
+    {
+        if (user == null)
+            return RoomWhite;
+
+        if (user.tipus_sala == RoomWhite || user.tipus_sala == RoomAdult || user.tipus_sala == RoomChild)
+            return user.tipus_sala;
+
+        return user.entorn_adult ? RoomAdult : RoomChild;
+    }
+
+    private static string GetPosture(User user)
+    {
+        return user != null && user.postura_inicial == SittingPosture ? SittingPosture : StandingPosture;
+    }
+
+    private static bool IsSitting(User user)
+    {
+        return GetPosture(user) == SittingPosture;
+    }
+
+    private static string RoomLabel(string roomType)
+    {
+        if (roomType == RoomAdult)
+            return "Adulto";
+
+        if (roomType == RoomChild)
+            return "Infantil";
+
+        return "Blanca";
     }
 }

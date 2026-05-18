@@ -16,10 +16,13 @@ public class UserSessionInfoCanvas : MonoBehaviour
     [Header("Listado")]
     public Transform sessionsContent;
     public TMP_Text sessionTextPrefab;
+    public ScrollRect sessionsScrollRect;
 
     private User currentUser;
     private Coroutine loadingCoroutine;
     private CanvasGroup canvasGroup;
+    private TMP_Text reportTextInstance;
+    private readonly StringBuilder reportBuilder = new();
 
     private void Awake()
     {
@@ -42,6 +45,7 @@ public class UserSessionInfoCanvas : MonoBehaviour
             refreshButton.onClick.AddListener(Refresh);
         }
 
+        ConfigureSessionsContentLayout();
         Hide();
     }
 
@@ -116,6 +120,7 @@ public class UserSessionInfoCanvas : MonoBehaviour
         if (sessions == null || sessions.Length == 0)
         {
             SetStatus("Este usuario no tiene sesiones.");
+            RefreshSessionsLayout();
             yield break;
         }
 
@@ -154,6 +159,8 @@ public class UserSessionInfoCanvas : MonoBehaviour
 
             AddSessionText(BuildSessionText(session, phases, tutorialElements, preparationElements, vrElements));
         }
+
+        RefreshSessionsLayout();
     }
 
     private IEnumerator LoadLastSessionFallback(User user)
@@ -184,6 +191,7 @@ public class UserSessionInfoCanvas : MonoBehaviour
 
         SetStatus("");
         AddSessionText(BuildLastSessionText(lastSession));
+        RefreshSessionsLayout();
     }
 
     private string BuildSessionText(
@@ -250,9 +258,145 @@ public class UserSessionInfoCanvas : MonoBehaviour
             return;
         }
 
-        TMP_Text item = Instantiate(sessionTextPrefab, sessionsContent, false);
-        item.gameObject.SetActive(true);
-        item.text = text;
+        if (reportBuilder.Length > 0)
+            reportBuilder.AppendLine().AppendLine("----------------------------------------").AppendLine();
+
+        reportBuilder.Append(text);
+        EnsureReportTextInstance();
+        ApplyReportTextLayout();
+        StartCoroutine(RefreshSessionsLayoutNextFrame());
+    }
+
+    private void EnsureReportTextInstance()
+    {
+        if (reportTextInstance != null)
+            return;
+
+        reportTextInstance = Instantiate(sessionTextPrefab, sessionsContent, false);
+        reportTextInstance.gameObject.SetActive(true);
+        reportTextInstance.enableWordWrapping = true;
+        reportTextInstance.overflowMode = TextOverflowModes.Overflow;
+        reportTextInstance.alignment = TextAlignmentOptions.TopLeft;
+        reportTextInstance.margin = Vector4.zero;
+        reportTextInstance.rectTransform.localScale = Vector3.one;
+
+        RectTransform textRect = reportTextInstance.GetComponent<RectTransform>();
+        if (textRect != null)
+        {
+            textRect.anchorMin = new Vector2(0f, 1f);
+            textRect.anchorMax = new Vector2(0f, 1f);
+            textRect.pivot = new Vector2(0f, 1f);
+            textRect.anchoredPosition = new Vector2(16f, -16f);
+        }
+
+        LayoutElement layoutElement = reportTextInstance.GetComponent<LayoutElement>();
+        if (layoutElement == null)
+            layoutElement = reportTextInstance.gameObject.AddComponent<LayoutElement>();
+    }
+
+    private float GetAvailableTextWidth()
+    {
+        if (sessionsScrollRect != null && sessionsScrollRect.viewport != null)
+            return Mathf.Max(100f, sessionsScrollRect.viewport.rect.width - 32f);
+
+        if (sessionsContent is RectTransform contentRect)
+            return Mathf.Max(100f, contentRect.rect.width - 32f);
+
+        return 600f;
+    }
+
+    private void RefreshSessionsLayout()
+    {
+        if (sessionsContent == null)
+            return;
+
+        RectTransform contentRect = (RectTransform)sessionsContent;
+        EnsureContentRectIsScrollable(contentRect);
+        ApplyReportTextLayout();
+
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(contentRect);
+        Canvas.ForceUpdateCanvases();
+
+        if (sessionsScrollRect != null)
+        {
+            sessionsScrollRect.vertical = true;
+            sessionsScrollRect.horizontal = false;
+            sessionsScrollRect.verticalNormalizedPosition = 1f;
+        }
+    }
+
+    private IEnumerator RefreshSessionsLayoutNextFrame()
+    {
+        yield return null;
+        RefreshSessionsLayout();
+    }
+
+    private void EnsureContentRectIsScrollable(RectTransform contentRect)
+    {
+        contentRect.anchorMin = new Vector2(0f, 1f);
+        contentRect.anchorMax = new Vector2(0f, 1f);
+        contentRect.pivot = new Vector2(0f, 1f);
+        contentRect.anchoredPosition = Vector2.zero;
+    }
+
+    private void ApplyManualContentHeight(RectTransform contentRect)
+    {
+        ApplyReportTextLayout();
+    }
+
+    private void ApplyReportTextLayout()
+    {
+        if (sessionsContent == null || reportTextInstance == null)
+            return;
+
+        RectTransform contentRect = (RectTransform)sessionsContent;
+        RectTransform textRect = reportTextInstance.GetComponent<RectTransform>();
+
+        float viewportWidth = sessionsScrollRect != null && sessionsScrollRect.viewport != null
+            ? sessionsScrollRect.viewport.rect.width
+            : 600f;
+        float viewportHeight = sessionsScrollRect != null && sessionsScrollRect.viewport != null
+            ? sessionsScrollRect.viewport.rect.height
+            : 0f;
+
+        float availableWidth = Mathf.Max(100f, viewportWidth - 48f);
+        reportTextInstance.text = reportBuilder.ToString();
+        if (textRect != null)
+            textRect.sizeDelta = new Vector2(availableWidth, 10000f);
+
+        reportTextInstance.ForceMeshUpdate();
+
+        float preferredHeight = Mathf.Ceil(reportTextInstance.GetPreferredValues(reportTextInstance.text, availableWidth, Mathf.Infinity).y) + 48f;
+        float finalHeight = Mathf.Max(preferredHeight, viewportHeight);
+
+        if (textRect != null)
+            textRect.sizeDelta = new Vector2(availableWidth, finalHeight - 32f);
+
+        LayoutElement layoutElement = reportTextInstance.GetComponent<LayoutElement>();
+        if (layoutElement != null)
+        {
+            layoutElement.preferredWidth = availableWidth;
+            layoutElement.minHeight = finalHeight;
+            layoutElement.preferredHeight = finalHeight;
+            layoutElement.flexibleHeight = 0f;
+        }
+
+        contentRect.sizeDelta = new Vector2(Mathf.Max(viewportWidth, availableWidth + 32f), finalHeight);
+    }
+
+    private void ConfigureSessionsContentLayout()
+    {
+        if (sessionsContent == null)
+            return;
+
+        VerticalLayoutGroup layoutGroup = sessionsContent.GetComponent<VerticalLayoutGroup>();
+        if (layoutGroup != null)
+            layoutGroup.enabled = false;
+
+        ContentSizeFitter fitter = sessionsContent.GetComponent<ContentSizeFitter>();
+        if (fitter != null)
+            fitter.enabled = false;
     }
 
     private void ClearList()
@@ -260,8 +404,19 @@ public class UserSessionInfoCanvas : MonoBehaviour
         if (sessionsContent == null)
             return;
 
+        reportTextInstance = null;
+        reportBuilder.Clear();
+
         for (int i = sessionsContent.childCount - 1; i >= 0; i--)
-            Destroy(sessionsContent.GetChild(i).gameObject);
+        {
+            Transform child = sessionsContent.GetChild(i);
+            if (sessionTextPrefab != null && child == sessionTextPrefab.transform)
+                continue;
+
+            Destroy(child.gameObject);
+        }
+
+        RefreshSessionsLayout();
     }
 
     private void SetStatus(string message)
