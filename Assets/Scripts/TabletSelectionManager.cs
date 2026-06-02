@@ -39,6 +39,7 @@ public class TabletSelectionManager : MonoBehaviour
 
     [Header("Interfaz de Usuario (UI)")]
     public TMP_Text textoContador;
+    public AmbientLightTabletControl ambientLightControl;
 
     [Header("Red")]
     public Connection connectionScript;
@@ -72,6 +73,9 @@ public class TabletSelectionManager : MonoBehaviour
     {
         if (sessionTracker == null)
             sessionTracker = SessionTracker.GetOrCreate();
+
+        if (ambientLightControl == null)
+            ambientLightControl = FindFirstObjectByType<AmbientLightTabletControl>();
 
         // --- SOLUCION TEARING: Forzamos la sincronizacion vertical de la tablet ---
 
@@ -111,6 +115,9 @@ public class TabletSelectionManager : MonoBehaviour
         connectionScript.Send("USER:" + userId);
         connectionScript.Send("ROOM:" + SessionUser.SelectedRoomType);
         connectionScript.Send(SessionUser.SelectedInitialPosture == "SENTADO" ? "POSTURA:SENTADO" : "POSTURA:DE_PIE");
+
+        if (ambientLightControl != null)
+            ambientLightControl.SendCurrentLevel();
     }
 
     // ========================================================
@@ -143,17 +150,21 @@ public class TabletSelectionManager : MonoBehaviour
         if (sessionTracker == null)
             sessionTracker = SessionTracker.GetOrCreate();
 
+        ModoTablet modoAnterior = modoActual;
         sessionTracker.StartPhase("preparacio");
 
         modoActual = ModoTablet.PreparacionVR;
         ActualizarSpritesBotonesSuperiores();
-        LimpiarSelecciones(); // Empezamos de cero para elegir hasta 6
+
+        if (modoAnterior == ModoTablet.Tutorial || modoAnterior == ModoTablet.Ninguno)
+            LimpiarSelecciones();
 
         // APAGAMOS LOS TELEPORTS (No hacen falta aqui)
         ActualizarVisibilidadTeleports(false);
 
         // Vaciamos la camara espectador de objetos anteriores
-        if (mirrorManager != null) mirrorManager.GenerarEntorno("", false);
+        if (mirrorManager != null && botonesSeleccionados.Count == 0)
+            mirrorManager.GenerarEntorno("", false);
 
         if (connectionScript != null && connectionScript.connected)
             connectionScript.Send("CMD_PREPARACION");
@@ -441,6 +452,15 @@ public class TabletSelectionManager : MonoBehaviour
                     if (mirrorManager != null)
                         mirrorManager.ActualizarPosicionCamara(mensajeRecibido.Substring(5));
                 }
+                else if (mensajeRecibido.StartsWith("CMD_AMBIENT_LIGHT_LEVEL:"))
+                {
+                    if (ambientLightControl != null &&
+                        int.TryParse(mensajeRecibido.Substring("CMD_AMBIENT_LIGHT_LEVEL:".Length), out int lightLevel))
+                    {
+                        Debug.Log("[LUZ] Recibido nivel de luz aplicado por VR: " + lightLevel);
+                        ambientLightControl.SetLevelFromRemote(lightLevel);
+                    }
+                }
                 else if (mensajeRecibido.StartsWith("SYNC:"))
                 {
                     string payload = mensajeRecibido.Substring(5);
@@ -451,6 +471,14 @@ public class TabletSelectionManager : MonoBehaviour
 
                     if (sessionTracker != null)
                         RegistrarPosicionesVrDesdeCasco(payload);
+                }
+                else if (mensajeRecibido.StartsWith("PREP:"))
+                {
+                    string payload = mensajeRecibido.Substring(5);
+                    ActivarPreparacionRestauradaDesdeCasco(payload);
+
+                    if (mirrorManager != null)
+                        mirrorManager.GenerarEntorno(payload, false);
                 }
                 else if (mensajeRecibido.StartsWith("SYNC_TUT:"))
                 {
@@ -486,6 +514,22 @@ public class TabletSelectionManager : MonoBehaviour
         sessionTracker.SavePreparationElements(ids);
         sessionTracker.StartPhase("vr");
         sessionTracker.RegisterVrElements(ids);
+    }
+
+    private void ActivarPreparacionRestauradaDesdeCasco(string payload)
+    {
+        List<string> ids = ExtraerIdsDesdePayloadSync(payload);
+
+        if (sessionTracker == null)
+            sessionTracker = SessionTracker.GetOrCreate();
+
+        modoActual = ModoTablet.PreparacionVR;
+        ActualizarSpritesBotonesSuperiores();
+        SeleccionarBotonesPorIds(ids);
+        ActualizarVisibilidadTeleports(false);
+
+        if (sessionTracker != null && ids.Count > 0)
+            sessionTracker.SavePreparationElements(ids);
     }
 
     private List<string> ExtraerIdsDesdePayloadSync(string payload)

@@ -433,6 +433,21 @@ public class UserSelectScreen : MonoBehaviour
             connectionPopup.SetActive(visible);
     }
 
+    public void ReturnToSelectedUserReadyState()
+    {
+        SetConnectionPopupVisible(false);
+        SetCreateDialogVisible(false);
+
+        if (sessionInfoCanvas != null)
+            sessionInfoCanvas.Hide();
+        else
+            SetInfoPopupVisible(false);
+
+        RefreshSelectedLabel();
+        RefreshSelectedActions();
+        SetStatus("");
+    }
+
     private void SetInfoPopupVisible(bool visible)
     {
         if (infoPopup != null)

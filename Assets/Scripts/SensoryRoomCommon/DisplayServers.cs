@@ -37,7 +37,7 @@ public class DisplayServers : MonoBehaviour
 
 	[Header("Search timing")]
 	public float searchTimeoutSeconds = 20f;
-	public bool autoConnectSingleServer = true;
+	public bool autoConnectSingleServer = false;
 
 	private float searchTimer = 0f;
 	private bool showingNoServers = false;
@@ -170,7 +170,7 @@ public class DisplayServers : MonoBehaviour
 		loadingText.text = text_lookingForServers;
 		feedbackText.gameObject.SetActive(false);
 		ClearPanel();
-		uiManager.GoToConnectionCanvas();
+		ReturnToSelectedUserReadyState();
 		errorText.text = text_connectError;
 		errorText.gameObject.SetActive(true);
 		StartCoroutine(FadeErrorTextOut());
@@ -183,11 +183,21 @@ public class DisplayServers : MonoBehaviour
 		lanDiscovery.ResetState();
 		loadingText.text = text_lookingForServers;
 		ClearPanel();
-		uiManager.GoToConnectionCanvas();
+		ReturnToSelectedUserReadyState();
 		errorText.text = text_disconnectError;
 		errorText.gameObject.SetActive(true);
 		StartCoroutine(FadeErrorTextOut());
 		BeginSearch();
+	}
+
+	private void ReturnToSelectedUserReadyState()
+	{
+		UserSelectScreen userSelectScreen = FindFirstObjectByType<UserSelectScreen>(FindObjectsInactive.Include);
+		if (userSelectScreen != null)
+			userSelectScreen.ReturnToSelectedUserReadyState();
+
+		if (uiManager != null)
+			uiManager.GoToUserSelectCanvas();
 	}
 
 	private void ClearPanel() 
@@ -252,15 +262,6 @@ public class DisplayServers : MonoBehaviour
 			{
 				StartCoroutine(ConnectToServer(ipAddress));				
 			});
-		}
-
-		if (autoConnectSingleServer && !connecting && SessionUser.SelectedUserId > 0 && count == 1)
-		{
-			foreach (var kv in lanDiscovery.discoveredServers)
-			{
-				StartCoroutine(ConnectToServer(kv.Value));
-				break;
-			}
 		}
 
 		return count;
