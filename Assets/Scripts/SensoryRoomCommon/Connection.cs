@@ -37,6 +37,7 @@ public class Connection : MonoBehaviour
 
     public Side side;
 	public bool debug;
+	public bool logReceivedMessages = false;
     public LANDiscovery lanDiscovery;
 
     public NetworkStream stream;
@@ -52,6 +53,8 @@ public class Connection : MonoBehaviour
 	TcpClient tcpClient;
 	public DisplayServers displayServers;
 	private List<Action> onDisconnectCallbacks = new();
+	private List<Action> onRemoteCloseCallbacks = new();
+	private volatile bool remoteCloseRequested = false;
 
 	// If server
 	private List<Action> onClientConnectCallbacks = new();
@@ -59,12 +62,22 @@ public class Connection : MonoBehaviour
 	private TcpListener tcpListener;
 	private Thread listener;
 
+	private void Awake()
+	{
+		// Cambiar temporalmente a otra app no debe cerrar el socket. En las
+		// plataformas que lo permiten, mantenemos el bucle Unity activo en segundo plano.
+		Application.runInBackground = true;
+	}
+
 	public bool ConnectToServer(string ipAddress)
 	{
 		try
 		{
 			if (side != Side.Client)
 				return false;
+
+			if (connected && tcpClient != null)
+				return true;
 
 			tcpClient = new(ipAddress, serverPort);
 			stream = tcpClient.GetStream();
@@ -97,6 +110,11 @@ public class Connection : MonoBehaviour
 		onDisconnectCallbacks.Add(callback);
 	}
 
+	public void RegisterOnRemoteCloseCallback(Action callback)
+	{
+		onRemoteCloseCallbacks.Add(callback);
+	}
+
 	void ListenerFunc()
 	{
 		tcpListener = new TcpListener(IPAddress.Any, serverPort);
@@ -108,12 +126,13 @@ public class Connection : MonoBehaviour
 		{
 			if (tcpListener.Pending())
 			{
-				TcpClient tcpClient = tcpListener.AcceptTcpClient();
+				TcpClient acceptedClient = tcpListener.AcceptTcpClient();
 				if (debug)
 					Debug.Log("Client connected");
 				connected = true;
 
-				stream = tcpClient.GetStream();
+				tcpClient = acceptedClient;
+				stream = acceptedClient.GetStream();
 				Thread thread = new(() => Receive());
 				thread.IsBackground = true;
 				thread.Start();
@@ -134,23 +153,27 @@ public class Connection : MonoBehaviour
 		if (runningServer)
 			return;
 
+		runningServer = true;
 		listener = new(ListenerFunc);
 		listener.IsBackground = true;
 		listener.Start();
-		runningServer = true;
 	}
 
 	void CloseConnection()
 	{
+		bool wasConnected = connected || stream != null || tcpClient != null;
+
 		if (side == Side.Client)
 		{
 			try
 			{
 				if (stream != null)
 					stream.Close();
+				stream = null;
 
 				if (tcpClient != null)
 					tcpClient.Close();
+				tcpClient = null;
 
 				connected = false;
 				
@@ -170,6 +193,23 @@ public class Connection : MonoBehaviour
 		}
 		else if (side == Side.Server) 
 		{
+			try
+			{
+				if (stream != null)
+					stream.Close();
+				stream = null;
+
+				if (tcpClient != null)
+					tcpClient.Close();
+				tcpClient = null;
+			}
+			catch (Exception e)
+			{
+				Debug.LogError("Error closing server client connection: " + e.Message);
+			}
+
+			connected = false;
+
 			while (!connectionThreads.IsEmpty)
 			{
 				connectionThreads.TryDequeue(out var thread);
@@ -180,8 +220,11 @@ public class Connection : MonoBehaviour
 				Debug.Log("Closed connection with all clients.");
 		}
 
-		foreach (var callback in onDisconnectCallbacks)
-			callback();
+		if (wasConnected)
+		{
+			foreach (var callback in onDisconnectCallbacks)
+				callback();
+		}
 	}
 
 	void CloseServer() 
@@ -191,6 +234,12 @@ public class Connection : MonoBehaviour
 
 		runningServer = false;
 		connected = false;
+		if (stream != null)
+			stream.Close();
+		stream = null;
+		if (tcpClient != null)
+			tcpClient.Close();
+		tcpClient = null;
 		tcpListener.Stop();
 		listener.Join();
 
@@ -249,7 +298,12 @@ public class Connection : MonoBehaviour
 			{
 				int bytesRead = stream.Read(buffer, 0, buffer.Length);
 				if (bytesRead == 0)
-					break;
+				{
+					// El otro extremo se cerró sin poder enviar el mensaje final.
+					// Se trata como desconexión real, no como una pausa temporal.
+					closeRequest = true;
+					return;
+				}
 
 				sb.Append(Encoding.ASCII.GetString(buffer, 0, bytesRead));
 
@@ -261,12 +315,13 @@ public class Connection : MonoBehaviour
 
 					if (line.Equals(closeString)) 
 					{
+						remoteCloseRequested = true;
 						closeRequest = true;
 						return;
 					}
 
 					// line is ONE complete JSON message
-					if (debug)
+					if (debug && logReceivedMessages)
 						Debug.Log("Received message: " + line);
 					messageQueue.Enqueue(line);
 				}
@@ -294,6 +349,13 @@ public class Connection : MonoBehaviour
 	{
 		if (closeRequest) 
 		{
+			if (remoteCloseRequested)
+			{
+				foreach (var callback in onRemoteCloseCallbacks)
+					callback();
+				remoteCloseRequested = false;
+			}
+
 			CloseConnection();
 			closeRequest = false;
 		}

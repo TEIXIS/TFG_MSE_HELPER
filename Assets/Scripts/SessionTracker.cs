@@ -14,7 +14,13 @@ public class SessionTracker : MonoBehaviour
     public bool currentHandParticlesActive = true;
 
     private bool sessionStartRequested;
+    private bool sessionEndInProgress;
+    private int pendingPersistenceRequests;
     private DateTime sessionStartedAt;
+
+    // El cierre de una aplicación no debe interrumpir las peticiones que crean
+    // la sesión, sus fases o sus elementos. Este margen solo se usa al cerrar.
+    private const float SessionCloseWaitTimeoutSeconds = 12f;
 
     private int currentPhaseId = -1;
     private string currentPhase;
@@ -82,7 +88,7 @@ public class SessionTracker : MonoBehaviour
         sessionStartRequested = true;
         sessionStartedAt = DateTime.UtcNow;
 
-        StartCoroutine(UserAPI.CreateSession(
+        StartTrackedPersistenceRequest(UserAPI.CreateSession(
             userId,
             currentPosture,
             currentMenuHandsActive,
@@ -147,7 +153,7 @@ public class SessionTracker : MonoBehaviour
         }
         if (phase == "vr") enteredVr = true;
 
-        StartCoroutine(WhenSessionReady(() => UserAPI.CreateSessionPhase(
+        StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.CreateSessionPhase(
             currentSessionId,
             phase,
             id => currentPhaseId = id,
@@ -164,7 +170,7 @@ public class SessionTracker : MonoBehaviour
         CloseCurrentTutorialElement();
 
         currentTutorialElementStartedAt = DateTime.UtcNow;
-        StartCoroutine(WhenSessionReady(() => UserAPI.CreateTutorialElement(
+        StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.CreateTutorialElement(
             currentSessionId,
             elementId,
             id => currentTutorialElementId = id,
@@ -176,13 +182,38 @@ public class SessionTracker : MonoBehaviour
     {
         StartPhaseIfNeeded("preparacio");
 
+        HashSet<string> currentSelection = new();
         foreach (string elementId in elementIds)
         {
-            if (string.IsNullOrEmpty(elementId) || savedPreparationElements.Contains(elementId))
+            if (!string.IsNullOrEmpty(elementId))
+                currentSelection.Add(elementId);
+        }
+
+        List<string> removedElements = new();
+        foreach (string savedElementId in savedPreparationElements)
+        {
+            if (!currentSelection.Contains(savedElementId))
+                removedElements.Add(savedElementId);
+        }
+
+        foreach (string removedElementId in removedElements)
+        {
+            savedPreparationElements.Remove(removedElementId);
+            StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.CreatePreparationElement(
+                currentSessionId,
+                removedElementId,
+                false,
+                err => Debug.LogError("Error guardando elemento deseleccionado de preparacion: " + err)
+            )));
+        }
+
+        foreach (string elementId in currentSelection)
+        {
+            if (savedPreparationElements.Contains(elementId))
                 continue;
 
             savedPreparationElements.Add(elementId);
-            StartCoroutine(WhenSessionReady(() => UserAPI.CreatePreparationElement(
+            StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.CreatePreparationElement(
                 currentSessionId,
                 elementId,
                 true,
@@ -217,7 +248,7 @@ public class SessionTracker : MonoBehaviour
             int position = i + 1;
             vrElementPositions[elementId] = position;
 
-            StartCoroutine(WhenSessionReady(() => UserAPI.CreateVrElement(
+            StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.CreateVrElement(
                 currentSessionId,
                 elementId,
                 position,
@@ -242,7 +273,7 @@ public class SessionTracker : MonoBehaviour
         if (string.IsNullOrEmpty(elementId))
             return;
 
-        StartCoroutine(WhenTutorialElementRowReady(rowId => UserAPI.UpdateTutorialElementPose(
+        StartTrackedPersistenceRequest(WhenTutorialElementRowReady(rowId => UserAPI.UpdateTutorialElementPose(
             rowId,
             x,
             y,
@@ -257,7 +288,7 @@ public class SessionTracker : MonoBehaviour
         if (string.IsNullOrEmpty(elementId))
             return;
 
-        StartCoroutine(WhenVrElementRowReady(elementId, rowId => UserAPI.UpdateVrElementPose(
+        StartTrackedPersistenceRequest(WhenVrElementRowReady(elementId, rowId => UserAPI.UpdateVrElementPose(
             rowId,
             x,
             y,
@@ -269,31 +300,27 @@ public class SessionTracker : MonoBehaviour
 
     public void EndSession(string observations = null)
     {
-        CloseCurrentTutorialElement();
-        CloseCurrentVrElement();
-        CloseCurrentPhase();
-
-        if (currentSessionId <= 0)
+        if (sessionEndInProgress)
             return;
 
-        int sessionId = currentSessionId;
-        double totalDuration = SecondsSince(sessionStartedAt);
+        sessionEndInProgress = true;
+        StartCoroutine(EndSessionRoutine(observations));
+    }
 
-        StartCoroutine(UserAPI.EndSession(
-            sessionId,
-            totalDuration,
-            tutorialDuration,
-            preparationDuration,
-            vrDuration,
-            enteredTutorial,
-            enteredPreparation,
-            enteredVr,
-            currentPosture,
-            observations,
-            err => Debug.LogError("Error cerrando sesion: " + err)
-        ));
+    // Usado por el cierre iniciado desde la tablet. No devuelve hasta que las
+    // peticiones de persistencia ya han terminado o han agotado el margen.
+    public IEnumerator EndSessionAndWait(string observations = null)
+    {
+        if (sessionEndInProgress)
+        {
+            while (sessionEndInProgress)
+                yield return null;
 
-        ResetState();
+            yield break;
+        }
+
+        sessionEndInProgress = true;
+        yield return StartCoroutine(EndSessionRoutine(observations));
     }
 
     private void StartPhaseIfNeeded(string phase)
@@ -315,7 +342,7 @@ public class SessionTracker : MonoBehaviour
         int phaseId = currentPhaseId;
         if (phaseId > 0)
         {
-            StartCoroutine(UserAPI.EndSessionPhase(
+            StartTrackedPersistenceRequest(UserAPI.EndSessionPhase(
                 phaseId,
                 duration,
                 err => Debug.LogError("Error cerrando fase de sesion: " + err)
@@ -333,7 +360,7 @@ public class SessionTracker : MonoBehaviour
 
         int rowId = currentTutorialElementId;
         double duration = SecondsSince(currentTutorialElementStartedAt);
-        StartCoroutine(UserAPI.EndTutorialElement(
+        StartTrackedPersistenceRequest(UserAPI.EndTutorialElement(
             rowId,
             duration,
             err => Debug.LogError("Error cerrando elemento tutorial: " + err)
@@ -350,7 +377,7 @@ public class SessionTracker : MonoBehaviour
         string elementId = currentVrElement;
         double duration = SecondsSince(currentVrElementStartedAt);
 
-        StartCoroutine(WhenVrElementRowReady(elementId, rowId => UserAPI.EndVrElement(
+        StartTrackedPersistenceRequest(WhenVrElementRowReady(elementId, rowId => UserAPI.EndVrElement(
             rowId,
             duration,
             err => Debug.LogError("Error cerrando elemento VR: " + err)
@@ -364,13 +391,140 @@ public class SessionTracker : MonoBehaviour
         if (SessionUser.SelectedUserId > 0)
             StartSessionForSelectedUser();
 
-        StartCoroutine(WhenSessionReady(() => UserAPI.UpdateSessionSettings(
+        StartTrackedPersistenceRequest(WhenSessionReady(() => UserAPI.UpdateSessionSettings(
             currentSessionId,
             currentPosture,
             currentMenuHandsActive,
             currentHandParticlesActive,
             err => Debug.LogError("Error actualizando configuracion de sesion: " + err)
         )));
+    }
+
+    private IEnumerator EndSessionRoutine(string observations)
+    {
+        yield return StartCoroutine(WaitForPendingPersistenceRequests());
+
+        if (currentSessionId <= 0)
+        {
+            Debug.LogWarning("No se pudo cerrar una sesion porque no llego a crearse en la API.");
+            ResetState();
+            sessionEndInProgress = false;
+            yield break;
+        }
+
+        yield return StartCoroutine(CloseCurrentTutorialElementAndWait());
+        yield return StartCoroutine(CloseCurrentVrElementAndWait());
+        yield return StartCoroutine(CloseCurrentPhaseAndWait());
+
+        int sessionId = currentSessionId;
+        double totalDuration = SecondsSince(sessionStartedAt);
+
+        yield return StartCoroutine(UserAPI.EndSession(
+            sessionId,
+            totalDuration,
+            tutorialDuration,
+            preparationDuration,
+            vrDuration,
+            enteredTutorial,
+            enteredPreparation,
+            enteredVr,
+            currentPosture,
+            observations,
+            err => Debug.LogError("Error cerrando sesion: " + err)
+        ));
+
+        ResetState();
+        sessionEndInProgress = false;
+    }
+
+    private IEnumerator CloseCurrentPhaseAndWait()
+    {
+        if (string.IsNullOrEmpty(currentPhase))
+            yield break;
+
+        double duration = SecondsSince(currentPhaseStartedAt);
+        if (currentPhase == "tutorial") tutorialDuration += duration;
+        if (currentPhase == "preparacio") preparationDuration += duration;
+        if (currentPhase == "vr") vrDuration += duration;
+
+        int phaseId = currentPhaseId;
+        currentPhaseId = -1;
+        currentPhase = null;
+
+        if (phaseId > 0)
+        {
+            yield return StartCoroutine(UserAPI.EndSessionPhase(
+                phaseId,
+                duration,
+                err => Debug.LogError("Error cerrando fase de sesion: " + err)
+            ));
+        }
+    }
+
+    private IEnumerator CloseCurrentTutorialElementAndWait()
+    {
+        if (currentTutorialElementId <= 0)
+            yield break;
+
+        int rowId = currentTutorialElementId;
+        double duration = SecondsSince(currentTutorialElementStartedAt);
+        currentTutorialElementId = -1;
+
+        yield return StartCoroutine(UserAPI.EndTutorialElement(
+            rowId,
+            duration,
+            err => Debug.LogError("Error cerrando elemento tutorial: " + err)
+        ));
+    }
+
+    private IEnumerator CloseCurrentVrElementAndWait()
+    {
+        if (string.IsNullOrEmpty(currentVrElement))
+            yield break;
+
+        string elementId = currentVrElement;
+        double duration = SecondsSince(currentVrElementStartedAt);
+        currentVrElement = null;
+
+        if (!vrElementRowIds.TryGetValue(elementId, out int rowId))
+        {
+            Debug.LogWarning("No se pudo cerrar el elemento VR '" + elementId + "' porque no se creo su registro.");
+            yield break;
+        }
+
+        yield return StartCoroutine(UserAPI.EndVrElement(
+            rowId,
+            duration,
+            err => Debug.LogError("Error cerrando elemento VR: " + err)
+        ));
+    }
+
+    private void StartTrackedPersistenceRequest(IEnumerator request)
+    {
+        pendingPersistenceRequests++;
+        StartCoroutine(RunTrackedPersistenceRequest(request));
+    }
+
+    private IEnumerator RunTrackedPersistenceRequest(IEnumerator request)
+    {
+        yield return StartCoroutine(request);
+        pendingPersistenceRequests = Mathf.Max(0, pendingPersistenceRequests - 1);
+    }
+
+    private IEnumerator WaitForPendingPersistenceRequests()
+    {
+        float deadline = Time.realtimeSinceStartup + SessionCloseWaitTimeoutSeconds;
+
+        while ((sessionStartRequested || pendingPersistenceRequests > 0) && Time.realtimeSinceStartup < deadline)
+            yield return null;
+
+        if (sessionStartRequested || pendingPersistenceRequests > 0)
+        {
+            Debug.LogWarning(
+                "Se agoto el tiempo de espera de persistencia al cerrar la sesion. " +
+                "La aplicacion continuara el cierre para no quedar bloqueada."
+            );
+        }
     }
 
     private IEnumerator WhenSessionReady(Func<IEnumerator> action)

@@ -29,6 +29,10 @@ public class TabletSelectionManager : MonoBehaviour
     public TabletMirrorManager mirrorManager;
     [Tooltip("Arrastra aqui el componente Image del boton ACTIVAR de la pantalla negra")]
     public Image imgBotonEspectador;
+    [Tooltip("Aviso mostrado cuando se solicita el mundo VR de la tablet fuera de la fase VR real del visor.")]
+    public GameObject missatgeNoVR;
+    [TextArea(2, 3)]
+    public string textoMissatgeNoVR = "La vista del món VR estarà disponible quan el visor entri a la fase VR.";
 
 
     [Header("Estado Actual")]
@@ -39,13 +43,17 @@ public class TabletSelectionManager : MonoBehaviour
 
     [Header("Interfaz de Usuario (UI)")]
     public TMP_Text textoContador;
+    public TMP_Text textoNombreUsuario;
     public AmbientLightTabletControl ambientLightControl;
+    public MusicTabletControl musicControl;
 
     [Header("Red")]
     public Connection connectionScript;
     public SessionTracker sessionTracker;
 
     private List<ElementButton> botonesSeleccionados = new List<ElementButton>();
+    private List<string> ultimaSeleccionPreparacionIds = new List<string>();
+    private bool seleccionRestauradaDesdeCasco;
 
     [Header("Estetica Global de Botones")]
     [Tooltip("La imagen por defecto para TODOS los botones (arriba y abajo)")]
@@ -62,9 +70,16 @@ public class TabletSelectionManager : MonoBehaviour
     // Lista para controlar los botones de teletransporte
     private List<TabletTeleportButton> botonesTeleport = new List<TabletTeleportButton>();
     private bool inicializado;
+    private string ultimoNombreUsuarioMostrado;
+    private bool mundoVrTabletSolicitado;
+    private bool visorEnFaseVR;
+    private bool trackingEspectadorEnviado;
 
     private void OnEnable()
     {
+        AutoWireUserNameText();
+        ActualizarNombreUsuarioUI();
+
         if (inicializado && connectionScript != null && connectionScript.connected)
             EnviarUsuarioSeleccionadoAlVR();
     }
@@ -76,6 +91,12 @@ public class TabletSelectionManager : MonoBehaviour
 
         if (ambientLightControl == null)
             ambientLightControl = FindFirstObjectByType<AmbientLightTabletControl>();
+
+        if (musicControl == null)
+            musicControl = FindFirstObjectByType<MusicTabletControl>();
+
+        AutoWireUserNameText();
+        ActualizarNombreUsuarioUI();
 
         // --- SOLUCION TEARING: Forzamos la sincronizacion vertical de la tablet ---
 
@@ -96,6 +117,9 @@ public class TabletSelectionManager : MonoBehaviour
         ActualizarSpriteParticulas();
 
         sessionTracker.ApplyInitialSettings(posturaActual == PosturaUsuario.Sentado, menuVRPermitido, particulasPermitidas);
+        ResolverMissatgeNoVR();
+        mundoVrTabletSolicitado = mirrorManager != null && mirrorManager.isPantallaActiva;
+        AplicarEstadoMundoVRTablet();
 
         inicializado = true;
 
@@ -120,20 +144,67 @@ public class TabletSelectionManager : MonoBehaviour
             ambientLightControl.SendCurrentLevel();
     }
 
+    private void AutoWireUserNameText()
+    {
+        if (textoNombreUsuario != null)
+            return;
+
+        TMP_Text[] textos = GetComponentsInChildren<TMP_Text>(true);
+        foreach (TMP_Text texto in textos)
+        {
+            if (texto != null && texto.name == "Text_nom_usuari")
+            {
+                textoNombreUsuario = texto;
+                return;
+            }
+        }
+
+        textos = FindObjectsByType<TMP_Text>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (TMP_Text texto in textos)
+        {
+            if (texto != null && texto.name == "Text_nom_usuari")
+            {
+                textoNombreUsuario = texto;
+                return;
+            }
+        }
+    }
+
+    private void ActualizarNombreUsuarioUI()
+    {
+        if (textoNombreUsuario == null)
+            return;
+
+        string nombreUsuario = string.IsNullOrWhiteSpace(SessionUser.SelectedUserName)
+            ? "-"
+            : SessionUser.SelectedUserName;
+
+        textoNombreUsuario.text = nombreUsuario;
+        ultimoNombreUsuarioMostrado = nombreUsuario;
+    }
+
     // ========================================================
     // LOGICA DE LOS 3 BOTONES SUPERIORES (Modos de la App)
     // ========================================================
 
     public void ActivarModoTutorial()
     {
+        ActivarModoTutorialInterno(true);
+    }
+
+    // El visor puede iniciar el tutorial automaticamente cuando el usuario no
+    // tiene una sesion anterior. En ese caso no se reenvia CMD_TUTORIAL.
+    private void ActivarModoTutorialInterno(bool informarAlVisor)
+    {
         if (sessionTracker == null)
             sessionTracker = SessionTracker.GetOrCreate();
 
+        GuardarSeleccionPreparacionActual();
         sessionTracker.StartPhase("tutorial");
 
         modoActual = ModoTablet.Tutorial;
         ActualizarSpritesBotonesSuperiores();
-        LimpiarSelecciones(); // Empezamos de cero
+        LimpiarSeleccionesSinBorrarMemoriaPreparacion();
 
         // APAGAMOS LOS TELEPORTS (No hacen falta aqui)
         ActualizarVisibilidadTeleports(false);
@@ -141,8 +212,10 @@ public class TabletSelectionManager : MonoBehaviour
         // Vaciamos la camara espectador de objetos anteriores
         if (mirrorManager != null) mirrorManager.GenerarEntorno("", false);
 
-        if (connectionScript != null && connectionScript.connected)
+        if (informarAlVisor && connectionScript != null && connectionScript.connected)
+        {
             connectionScript.Send("CMD_TUTORIAL");
+        }
     }
 
     public void ActivarModoPreparacion()
@@ -156,7 +229,9 @@ public class TabletSelectionManager : MonoBehaviour
         modoActual = ModoTablet.PreparacionVR;
         ActualizarSpritesBotonesSuperiores();
 
-        if (modoAnterior == ModoTablet.Tutorial || modoAnterior == ModoTablet.Ninguno)
+        if (modoAnterior == ModoTablet.Tutorial && botonesSeleccionados.Count == 0)
+            RestaurarSeleccionPreparacionAnterior();
+        else if (modoAnterior == ModoTablet.Ninguno && !seleccionRestauradaDesdeCasco && botonesSeleccionados.Count == 0)
             LimpiarSelecciones();
 
         // APAGAMOS LOS TELEPORTS (No hacen falta aqui)
@@ -172,6 +247,18 @@ public class TabletSelectionManager : MonoBehaviour
 
     public void ActivarModoVR()
     {
+        if (modoActual == ModoTablet.Tutorial)
+        {
+            Debug.LogWarning("No puedes pasar directamente de Tutorial a VR. Primero entra en Preparacion VR y confirma la seleccion.");
+            return;
+        }
+
+        if (modoActual != ModoTablet.PreparacionVR && modoActual != ModoTablet.VR)
+        {
+            Debug.LogWarning("Para iniciar VR primero debes pasar por Preparacion VR.");
+            return;
+        }
+
         if (botonesSeleccionados.Count == 0)
         {
             Debug.LogWarning("No puedes iniciar VR sin seleccionar ningun elemento en Preparacion.");
@@ -185,6 +272,7 @@ public class TabletSelectionManager : MonoBehaviour
             sessionTracker = SessionTracker.GetOrCreate();
 
         List<string> ids = GetSelectedElementIds();
+        ultimaSeleccionPreparacionIds = new List<string>(ids);
         IniciarVRConElementos(ids);
     }
 
@@ -224,6 +312,8 @@ public class TabletSelectionManager : MonoBehaviour
             if (btn != null) btn.CambiarEstadoVisual(false);
 
         botonesSeleccionados.Clear();
+        if (modoActual != ModoTablet.Tutorial)
+            ultimaSeleccionPreparacionIds = ids != null ? new List<string>(ids) : new List<string>();
 
         ElementButton[] botones = FindObjectsByType<ElementButton>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (string id in ids)
@@ -242,6 +332,21 @@ public class TabletSelectionManager : MonoBehaviour
         ActualizarContadorUI();
     }
 
+    private void EnviarPrimerElementoSeleccionadoATutorial()
+    {
+        if (botonesSeleccionados.Count == 0 || connectionScript == null || !connectionScript.connected)
+            return;
+
+        ElementButton primerBoton = botonesSeleccionados[0];
+        if (primerBoton == null || string.IsNullOrEmpty(primerBoton.idElemento))
+            return;
+
+        connectionScript.Send("TUTORIAL:" + primerBoton.idElemento);
+        if (sessionTracker != null)
+            sessionTracker.TrackTutorialElement(primerBoton.idElemento);
+    }
+
+
     // --- NUEVO: En lugar de colores, usamos los Sprites para los botones de arriba ---
     private void ActualizarSpritesBotonesSuperiores()
     {
@@ -259,7 +364,37 @@ public class TabletSelectionManager : MonoBehaviour
     {
         foreach (var btn in botonesSeleccionados) { btn.CambiarEstadoVisual(false); }
         botonesSeleccionados.Clear();
+        seleccionRestauradaDesdeCasco = false;
+        ultimaSeleccionPreparacionIds.Clear();
         ActualizarContadorUI();
+    }
+
+    // Limpia la seleccion visible al entrar en tutorial sin olvidar lo que habia preparado para VR.
+    private void LimpiarSeleccionesSinBorrarMemoriaPreparacion()
+    {
+        foreach (var btn in botonesSeleccionados) { btn.CambiarEstadoVisual(false); }
+        botonesSeleccionados.Clear();
+        seleccionRestauradaDesdeCasco = false;
+        ActualizarContadorUI();
+    }
+
+    // Guarda los elementos de preparacion o VR para poder recuperarlos al salir del tutorial.
+    private void GuardarSeleccionPreparacionActual()
+    {
+        if (modoActual == ModoTablet.Tutorial)
+            return;
+
+        ultimaSeleccionPreparacionIds = GetSelectedElementIds();
+    }
+
+    // Vuelve a marcar en la tablet los elementos que habia antes de entrar en tutorial.
+    private void RestaurarSeleccionPreparacionAnterior()
+    {
+        if (ultimaSeleccionPreparacionIds == null || ultimaSeleccionPreparacionIds.Count == 0)
+            return;
+
+        SeleccionarBotonesPorIds(ultimaSeleccionPreparacionIds);
+        seleccionRestauradaDesdeCasco = true;
     }
 
     // ========================================================
@@ -277,7 +412,8 @@ public class TabletSelectionManager : MonoBehaviour
 
         if (modoActual == ModoTablet.Tutorial)
         {
-            LimpiarSelecciones();
+            LimpiarSeleccionesSinBorrarMemoriaPreparacion();
+            seleccionRestauradaDesdeCasco = false;
             botonesSeleccionados.Add(botonPulsado);
             botonPulsado.CambiarEstadoVisual(true);
             if (sessionTracker != null)
@@ -288,6 +424,7 @@ public class TabletSelectionManager : MonoBehaviour
         }
         else if (modoActual == ModoTablet.PreparacionVR)
         {
+            seleccionRestauradaDesdeCasco = false;
             if (botonesSeleccionados.Contains(botonPulsado))
             {
                 botonesSeleccionados.Remove(botonPulsado);
@@ -298,9 +435,11 @@ public class TabletSelectionManager : MonoBehaviour
                 botonesSeleccionados.Add(botonPulsado);
                 botonPulsado.CambiarEstadoVisual(true);
             }
+            GuardarSeleccionPreparacionActual();
         }
         else if (modoActual == ModoTablet.VR)
         {
+            seleccionRestauradaDesdeCasco = false;
             if (botonesSeleccionados.Contains(botonPulsado))
             {
                 botonesSeleccionados.Remove(botonPulsado);
@@ -311,6 +450,7 @@ public class TabletSelectionManager : MonoBehaviour
                 botonesSeleccionados.Add(botonPulsado);
                 botonPulsado.CambiarEstadoVisual(true);
             }
+            GuardarSeleccionPreparacionActual();
             ActivarModoVR(); // Re-enviamos los cambios en vivo al casco
         }
 
@@ -366,6 +506,7 @@ public class TabletSelectionManager : MonoBehaviour
         // 2. Sacamos a la tablet del modo VR para que la interfaz sea coherente
         modoActual = ModoTablet.Ninguno;
         ActualizarSpritesBotonesSuperiores();
+        ActualizarEstadoVRDelVisor(false);
 
         // 3. Apagamos las chinchetas de teletransporte (ya no se puede viajar)
         ActualizarVisibilidadTeleports(false);
@@ -430,6 +571,13 @@ public class TabletSelectionManager : MonoBehaviour
     // 3. NUEVO: La tablet ahora "escucha" los mensajes que vienen del casco VR
     void Update()
     {
+        string nombreUsuarioActual = string.IsNullOrWhiteSpace(SessionUser.SelectedUserName)
+            ? "-"
+            : SessionUser.SelectedUserName;
+
+        if (nombreUsuarioActual != ultimoNombreUsuarioMostrado)
+            ActualizarNombreUsuarioUI();
+
         if (connectionScript != null && connectionScript.connected)
         {
             while (connectionScript.messageQueue.TryDequeue(out string mensajeRecibido))
@@ -452,6 +600,14 @@ public class TabletSelectionManager : MonoBehaviour
                     if (mirrorManager != null)
                         mirrorManager.ActualizarPosicionCamara(mensajeRecibido.Substring(5));
                 }
+                else if (mensajeRecibido.StartsWith("VR_STATE:"))
+                {
+                    ActualizarEstadoVRDelVisor(mensajeRecibido.Substring("VR_STATE:".Length) == "ON");
+                }
+                else if (mensajeRecibido == "PHASE:TUTORIAL")
+                {
+                    ActivarModoTutorialInterno(false);
+                }
                 else if (mensajeRecibido.StartsWith("CMD_AMBIENT_LIGHT_LEVEL:"))
                 {
                     if (ambientLightControl != null &&
@@ -459,6 +615,29 @@ public class TabletSelectionManager : MonoBehaviour
                     {
                         Debug.Log("[LUZ] Recibido nivel de luz aplicado por VR: " + lightLevel);
                         ambientLightControl.SetLevelFromRemote(lightLevel);
+                    }
+                }
+                else if (mensajeRecibido.StartsWith("CMD_AMBIENT_LIGHT_COLOR:"))
+                {
+                    string lightColor = mensajeRecibido.Substring("CMD_AMBIENT_LIGHT_COLOR:".Length);
+                    Debug.Log("[LUZ] Recibido color de luz aplicado por VR: " + lightColor);
+                    if (ambientLightControl != null)
+                        ambientLightControl.SetColorFromRemote(lightColor);
+                }
+                else if (mensajeRecibido.StartsWith("CMD_MUSIC_SONG:"))
+                {
+                    string songName = mensajeRecibido.Substring("CMD_MUSIC_SONG:".Length);
+                    Debug.Log("[MUSICA] Recibida cancion aplicada por VR: " + songName);
+                    if (musicControl != null)
+                        musicControl.SetSongFromRemote(songName);
+                }
+                else if (mensajeRecibido.StartsWith("CMD_MUSIC_VOLUME:"))
+                {
+                    if (musicControl != null &&
+                        int.TryParse(mensajeRecibido.Substring("CMD_MUSIC_VOLUME:".Length), out int musicVolumeLevel))
+                    {
+                        Debug.Log("[MUSICA] Recibido volumen aplicado por VR: " + musicVolumeLevel);
+                        musicControl.SetVolumeLevelFromRemote(musicVolumeLevel);
                     }
                 }
                 else if (mensajeRecibido.StartsWith("SYNC:"))
@@ -471,6 +650,11 @@ public class TabletSelectionManager : MonoBehaviour
 
                     if (sessionTracker != null)
                         RegistrarPosicionesVrDesdeCasco(payload);
+                }
+                else if (mensajeRecibido.StartsWith("VR_FINAL:"))
+                {
+                    string payload = mensajeRecibido.Substring("VR_FINAL:".Length);
+                    RegistrarFinalVrDesdeCasco(payload);
                 }
                 else if (mensajeRecibido.StartsWith("PREP:"))
                 {
@@ -499,6 +683,12 @@ public class TabletSelectionManager : MonoBehaviour
         if (modoActual == ModoTablet.VR)
             return;
 
+        if (modoActual == ModoTablet.Tutorial)
+        {
+            Debug.LogWarning("SYNC VR ignorado porque la tablet esta en Tutorial. Primero debe pasarse por Preparacion VR.");
+            return;
+        }
+
         List<string> ids = ExtraerIdsDesdePayloadSync(payload);
         if (ids.Count == 0)
             return;
@@ -509,6 +699,7 @@ public class TabletSelectionManager : MonoBehaviour
         modoActual = ModoTablet.VR;
         ActualizarSpritesBotonesSuperiores();
         SeleccionarBotonesPorIds(ids);
+        seleccionRestauradaDesdeCasco = true;
         ActualizarVisibilidadTeleports(true);
 
         sessionTracker.SavePreparationElements(ids);
@@ -519,6 +710,8 @@ public class TabletSelectionManager : MonoBehaviour
     private void ActivarPreparacionRestauradaDesdeCasco(string payload)
     {
         List<string> ids = ExtraerIdsDesdePayloadSync(payload);
+        if (ids.Count == 0 && botonesSeleccionados.Count > 0)
+            return;
 
         if (sessionTracker == null)
             sessionTracker = SessionTracker.GetOrCreate();
@@ -526,10 +719,25 @@ public class TabletSelectionManager : MonoBehaviour
         modoActual = ModoTablet.PreparacionVR;
         ActualizarSpritesBotonesSuperiores();
         SeleccionarBotonesPorIds(ids);
+        seleccionRestauradaDesdeCasco = ids.Count > 0;
         ActualizarVisibilidadTeleports(false);
 
         if (sessionTracker != null && ids.Count > 0)
             sessionTracker.SavePreparationElements(ids);
+    }
+
+    private void RegistrarFinalVrDesdeCasco(string payload)
+    {
+        List<string> ids = ExtraerIdsDesdePayloadSync(payload);
+        if (ids.Count == 0)
+            return;
+
+        if (sessionTracker == null)
+            sessionTracker = SessionTracker.GetOrCreate();
+
+        sessionTracker.RegisterVrElements(ids);
+        RegistrarPosicionesVrDesdeCasco(payload);
+        SeleccionarBotonesPorIds(ids);
     }
 
     private List<string> ExtraerIdsDesdePayloadSync(string payload)
@@ -554,22 +762,110 @@ public class TabletSelectionManager : MonoBehaviour
     // FUNCION: Para el boton "ACTIVAR" de la pantalla
     public void TogglePantallaEspectador()
     {
-        if (mirrorManager == null) return;
+        mundoVrTabletSolicitado = !mundoVrTabletSolicitado;
+        AplicarEstadoMundoVRTablet();
+    }
 
-        bool nuevoEstado = !mirrorManager.isPantallaActiva;
-        mirrorManager.SetPantallaActiva(nuevoEstado);
+    private void ActualizarEstadoVRDelVisor(bool enVR)
+    {
+        visorEnFaseVR = enVR;
+        AplicarEstadoMundoVRTablet();
+    }
 
-        // Cambiamos el sprite del boton al instante
+    // Conserva la intencion del boton, pero solo activa MundoVR_Tablet y la
+    // camara espectadora cuando el visor confirma que su sala VR esta activa.
+    private void AplicarEstadoMundoVRTablet()
+    {
+        bool debeRenderizarMundoVR = mundoVrTabletSolicitado && visorEnFaseVR;
+
+        if (mirrorManager != null && mirrorManager.isPantallaActiva != debeRenderizarMundoVR)
+            mirrorManager.SetPantallaActiva(debeRenderizarMundoVR);
+
+        MostrarMissatgeNoVR(mundoVrTabletSolicitado && !visorEnFaseVR);
+
         if (imgBotonEspectador != null)
+            imgBotonEspectador.sprite = mundoVrTabletSolicitado ? spriteBotonSeleccionado : spriteBotonNormal;
+
+        EnviarEstadoTracking(debeRenderizarMundoVR);
+    }
+
+    private void EnviarEstadoTracking(bool activo)
+    {
+        if (trackingEspectadorEnviado == activo)
+            return;
+
+        trackingEspectadorEnviado = activo;
+        if (connectionScript != null && connectionScript.connected)
+            connectionScript.Send(activo ? "CMD_TRACKING:ON" : "CMD_TRACKING:OFF");
+    }
+
+    private void ResolverMissatgeNoVR()
+    {
+        if (missatgeNoVR == null)
         {
-            imgBotonEspectador.sprite = nuevoEstado ? spriteBotonSeleccionado : spriteBotonNormal;
+            foreach (Transform candidato in Resources.FindObjectsOfTypeAll<Transform>())
+            {
+                if (candidato != null &&
+                    candidato.gameObject.scene.IsValid() &&
+                    (candidato.name == "MissatgeNoVR" || candidato.name == "MensajeNoVR"))
+                {
+                    missatgeNoVR = candidato.gameObject;
+                    break;
+                }
+            }
         }
 
-        // Le decimos a las gafas que empiecen o dejen de gastar bateria transmitiendo
-        if (connectionScript != null && connectionScript.connected)
+        if (missatgeNoVR == null)
+            missatgeNoVR = CrearMissatgeNoVRDeReserva();
+
+        MostrarMissatgeNoVR(false);
+    }
+
+    private GameObject CrearMissatgeNoVRDeReserva()
+    {
+        Canvas canvas = imgBotonEspectador != null
+            ? imgBotonEspectador.GetComponentInParent<Canvas>(true)
+            : FindFirstObjectByType<Canvas>();
+
+        if (canvas == null)
         {
-            connectionScript.Send(nuevoEstado ? "CMD_TRACKING:ON" : "CMD_TRACKING:OFF");
+            Debug.LogWarning("No se pudo crear MissatgeNoVR: no se encontro un Canvas.");
+            return null;
         }
+
+        GameObject panel = new GameObject("MissatgeNoVR", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        panel.transform.SetParent(canvas.transform, false);
+
+        RectTransform panelRect = panel.GetComponent<RectTransform>();
+        panelRect.anchorMin = new Vector2(0.5f, 0.5f);
+        panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.pivot = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = new Vector2(0f, -190f);
+        panelRect.sizeDelta = new Vector2(760f, 105f);
+        panel.GetComponent<Image>().color = new Color(0.05f, 0.1f, 0.18f, 0.92f);
+
+        GameObject texto = new GameObject("Text", typeof(RectTransform), typeof(CanvasRenderer), typeof(TextMeshProUGUI));
+        texto.transform.SetParent(panel.transform, false);
+        RectTransform textoRect = texto.GetComponent<RectTransform>();
+        textoRect.anchorMin = Vector2.zero;
+        textoRect.anchorMax = Vector2.one;
+        textoRect.offsetMin = new Vector2(24f, 12f);
+        textoRect.offsetMax = new Vector2(-24f, -12f);
+
+        TextMeshProUGUI textoTMP = texto.GetComponent<TextMeshProUGUI>();
+        textoTMP.text = textoMissatgeNoVR;
+        textoTMP.fontSize = 28f;
+        textoTMP.alignment = TextAlignmentOptions.Center;
+        textoTMP.enableWordWrapping = true;
+        textoTMP.color = Color.white;
+
+        return panel;
+    }
+
+    private void MostrarMissatgeNoVR(bool mostrar)
+    {
+        if (missatgeNoVR != null && missatgeNoVR.activeSelf != mostrar)
+            missatgeNoVR.SetActive(mostrar);
     }
 
     // ========================================================

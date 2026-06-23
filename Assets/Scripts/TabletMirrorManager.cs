@@ -14,7 +14,23 @@ public class TabletMirrorManager : MonoBehaviour
     private const string RoomWhite = "blanca";
     private const string RoomAdult = "adult";
     private const string RoomChild = "infantil";
-
+    private static readonly HashSet<string> ElementosVisorPermitidos = new HashSet<string>
+    {
+        "prefabvisualizadordesonido",
+        "taula",
+        "taulallums",
+        "llumultraviolat",
+        "llummano",
+        "prefabmesasonido",
+        "llums",
+        "nouprefabalfombraled",
+        "prefablamparabombolles",
+        "prefabprojeccio",
+        "prefabproyector",
+        "lamparaburbujas",
+        "alfombra",
+        "boladisco"
+    };
     [Header("Cámaras y UI")]
     public Transform camaraEspectador;
     public GameObject pantallaUI;
@@ -23,6 +39,10 @@ public class TabletMirrorManager : MonoBehaviour
     public Transform contenedorMundoVR;
 
     [Header("Prefabs de Sala")]
+    [Tooltip("Prefab completo del visor de tablet. Si se asigna, se usa este en vez de clonar elementos por red.")]
+    public GameObject prefabSensoryRoomMonTablet;
+    [Tooltip("Muestra todos los elementos del prefab completo, aunque no lleguen seleccionados desde VR.")]
+    public bool mostrarTodosLosElementos = true;
     [Tooltip("Prefab que se vera en la tablet cuando el usuario tenga sala blanca.")]
     public GameObject prefabHabBlanca;
     [Tooltip("Prefab que se vera en la tablet cuando el usuario tenga sala adulta.")]
@@ -58,11 +78,17 @@ public class TabletMirrorManager : MonoBehaviour
     public void SetPantallaActiva(bool activa)
     {
         isPantallaActiva = activa;
+        if (contenedorMundoVR != null)
+            contenedorMundoVR.gameObject.SetActive(activa);
         if (pantallaUI != null) pantallaUI.SetActive(activa);
         if (camaraEspectador != null) camaraEspectador.gameObject.SetActive(activa);
 
         // Reiniciamos el "primer frame" al encender
-        if (activa) primeraVez = true;
+        if (activa)
+        {
+            primeraVez = true;
+            ActualizarSalaEspectador(false);
+        }
     }
     public void ActualizarPosicionCamara(string datosTracking)
     {
@@ -123,6 +149,9 @@ public class TabletMirrorManager : MonoBehaviour
         clonesEnEscena.Clear();
         ActualizarSalaEspectador(esTutorial);
 
+        if (prefabSensoryRoomMonTablet != null && mostrarTodosLosElementos)
+            return;
+
         if (string.IsNullOrEmpty(paqueteDatos)) return;
 
         string[] elementos = paqueteDatos.Split(';');
@@ -182,6 +211,13 @@ public class TabletMirrorManager : MonoBehaviour
         }
 
         string tipoSala = NormalizarTipoSala(SessionUser.SelectedRoomType);
+
+        if (prefabSensoryRoomMonTablet != null)
+        {
+            ActualizarSalaCompleta(tipoSala);
+            return;
+        }
+
         GameObject prefabSala = ObtenerPrefabSala(tipoSala);
 
         if (prefabSala == null)
@@ -204,6 +240,117 @@ public class TabletMirrorManager : MonoBehaviour
         ForzarCapaMundoVR(salaEnEscena.transform, capaVR);
     }
 
+    private void ActualizarSalaCompleta(string tipoSala)
+    {
+        if (salaEnEscena != null && tipoSalaEnEscena == tipoSala)
+            return;
+
+        DestruirSalaEspectador();
+
+        salaEnEscena = contenedorMundoVR != null
+            ? Instantiate(prefabSensoryRoomMonTablet, contenedorMundoVR)
+            : Instantiate(prefabSensoryRoomMonTablet, Vector3.zero, Quaternion.identity);
+
+        salaEnEscena.transform.localPosition = Vector3.zero;
+        salaEnEscena.transform.localRotation = Quaternion.identity;
+        tipoSalaEnEscena = tipoSala;
+
+        PrepararSalaCompletaParaTablet(salaEnEscena.transform, tipoSala);
+        ForzarCapaMundoVR(salaEnEscena.transform, capaVR);
+    }
+
+    private void PrepararSalaCompletaParaTablet(Transform raiz, string tipoSala)
+    {
+        MonoBehaviour[] scripts = raiz.GetComponentsInChildren<MonoBehaviour>(true);
+        foreach (MonoBehaviour script in scripts)
+        {
+            if (script != null)
+                script.enabled = false;
+        }
+
+        ConfigurarVisibilidadSalaCompleta(raiz, tipoSala, false, false, false, true);
+    }
+
+    // Prepara el prefab completo para que la tablet solo muestre la sala escogida y los elementos reales del visor.
+    private void ConfigurarVisibilidadSalaCompleta(Transform objeto, string tipoSala, bool dentroHabitacionOculta, bool dentroHabitacionVisible, bool dentroElementoPermitido, bool esRaiz)
+    {
+        string nombreOriginal = (objeto.name ?? "").Trim().ToLowerInvariant();
+        string nombre = NormalizarNombreObjeto(objeto.name);
+        bool esHabitacion = nombre == "habblanca" || nombre == "habadult" || nombre == "habinfantil";
+        bool habitacionSeleccionada =
+            (tipoSala == RoomWhite && nombre == "habblanca") ||
+            (tipoSala == RoomAdult && nombre == "habadult") ||
+            (tipoSala == RoomChild && nombre == "habinfantil");
+
+        bool esElementoPermitido = EsElementoPermitidoEnTablet(nombre);
+        bool ocultar = dentroHabitacionOculta;
+        bool habitacionVisibleActual = dentroHabitacionVisible;
+        bool elementoPermitidoActual = dentroElementoPermitido || esElementoPermitido;
+
+        if (esHabitacion)
+        {
+            ocultar = !habitacionSeleccionada;
+            habitacionVisibleActual = habitacionSeleccionada;
+        }
+
+        if (EsObjetoAuxiliarTablet(nombreOriginal) || (!habitacionVisibleActual && !elementoPermitidoActual && EsObjetoPruebaTablet(nombre)))
+            ocultar = true;
+
+        if (!esRaiz)
+            objeto.gameObject.SetActive(!ocultar);
+
+        bool hijosDentroHabitacionOculta = ocultar && esHabitacion;
+        foreach (Transform hijo in objeto)
+            ConfigurarVisibilidadSalaCompleta(hijo, tipoSala, hijosDentroHabitacionOculta, habitacionVisibleActual, elementoPermitidoActual, false);
+    }
+
+    // Detecta objetos de colocacion o pruebas que no forman parte de la experiencia final del visor.
+    private bool EsObjetoAuxiliarTablet(string nombre)
+    {
+        return nombre.Contains("borrar") ||
+               nombre.Contains("jumpingpoints") ||
+               nombre.StartsWith("pos_") ||
+               nombre == "emptyplace";
+    }
+
+    // Oculta restos claros de pruebas sin tocar cubos genericos que pueden ser paredes o suelo.
+    private bool EsObjetoPruebaTablet(string nombre)
+    {
+        return nombre == "groc" ||
+               nombre == "rosa" ||
+               nombre == "taronja" ||
+               nombre == "verd" ||
+               nombre == "blaucel" ||
+               nombre == "blaufosc" ||
+               nombre == "sphere" ||
+               nombre.StartsWith("sphere");
+    }
+    // Comprueba si un objeto suelto fuera de la sala es uno de los elementos que existen en VR.
+    private bool EsElementoPermitidoEnTablet(string nombre)
+    {
+        if (ElementosVisorPermitidos.Contains(nombre))
+            return true;
+
+        foreach (string nombrePermitido in ElementosVisorPermitidos)
+        {
+            if (nombre.StartsWith(nombrePermitido))
+                return true;
+        }
+
+        return false;
+    }
+
+    // Deja los nombres comparables aunque Unity añada espacios, guiones bajos o el sufijo Clone.
+    private string NormalizarNombreObjeto(string nombre)
+    {
+        return (nombre ?? "")
+            .Replace("(Clone)", "")
+            .Replace(" ", "")
+            .Replace("_", "")
+            .Replace("-", "")
+            .Trim()
+            .ToLowerInvariant();
+    }
     private void DestruirSalaEspectador()
     {
         if (salaEnEscena != null)

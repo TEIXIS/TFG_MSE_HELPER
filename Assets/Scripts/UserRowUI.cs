@@ -51,7 +51,7 @@ public class UserRowUI : MonoBehaviour
             environmentText.text = RoomLabel(GetRoomType(user));
 
         if (postureText != null)
-            postureText.text = IsSitting(user) ? "Sentado" : "De pie";
+            postureText.text = IsSitting(user) ? "Assegut" : "Dret";
 
         if (independentToggle != null)
         {
@@ -173,7 +173,7 @@ public class UserRowUI : MonoBehaviour
     private static string RoomLabel(string roomType)
     {
         if (roomType == RoomAdult)
-            return "Adulto";
+            return "Adult";
 
         if (roomType == RoomChild)
             return "Infantil";

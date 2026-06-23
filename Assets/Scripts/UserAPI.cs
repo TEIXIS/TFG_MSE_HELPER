@@ -122,6 +122,7 @@ public class UserAPI : MonoBehaviour
     {
         public string id_element;
         public int numero_posicio;
+        public bool seleccionat = true;
     }
 
     [Serializable]
@@ -131,8 +132,9 @@ public class UserAPI : MonoBehaviour
         public string postura_inicial;
         public string postura_final;
         public string postura_actual;
-        public bool menu_mans_actiu;
-        public bool particules_mans_actives;
+        public bool menu_mans_actiu = true;
+        public bool particules_mans_actives = true;
+        public LastSessionElement[] preparation_elements;
         public LastSessionElement[] vr_elements;
     }
 
@@ -143,8 +145,8 @@ public class UserAPI : MonoBehaviour
         public string postura_inicial;
         public string postura_final;
         public string postura_actual;
-        public bool menu_mans_actiu;
-        public bool particules_mans_actives;
+        public bool menu_mans_actiu = true;
+        public bool particules_mans_actives = true;
         public double durada_total_segons;
         public double durada_tutorial_segons;
         public double durada_preparacio_segons;
@@ -173,7 +175,7 @@ public class UserAPI : MonoBehaviour
     public class SessionElementInfo
     {
         public string id_element;
-        public bool seleccionat;
+        public bool seleccionat = true;
         public int numero_posicio;
         public double durada_segons;
         public double posicio_x;
@@ -495,7 +497,11 @@ public class UserAPI : MonoBehaviour
         Action<int> onSuccess,
         Action<string> onError = null)
     {
-        CreateSessionElementRequest data = new CreateSessionElementRequest { id_element = elementId };
+        CreateSessionElementRequest data = new CreateSessionElementRequest
+        {
+            id_element = elementId,
+            seleccionat = true
+        };
 
         yield return SendJsonWithResponse<CreateTutorialElementResponse>(
             Url("/sessions/" + sessionId + "/tutorial-elements"),
@@ -575,6 +581,7 @@ public class UserAPI : MonoBehaviour
         CreateSessionElementRequest data = new CreateSessionElementRequest
         {
             id_element = elementId,
+            seleccionat = true,
             numero_posicio = numeroPosicion
         };
 

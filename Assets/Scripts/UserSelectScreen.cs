@@ -16,7 +16,7 @@ public class UserSelectScreen : MonoBehaviour
     public Transform listContent;
     public GameObject userRowPrefab;
 
-    [Header("Crear usuario")]
+    [Header("Crear usuari")]
     public GameObject createDialog;
     public RectTransform createDialogContent;
     public TMP_InputField createInput;
@@ -63,6 +63,8 @@ public class UserSelectScreen : MonoBehaviour
     {
         if (sessionTracker == null)
             sessionTracker = SessionTracker.GetOrCreate();
+
+        AutoWireInfoPopupReferences();
 
         if (openCreateButton != null)
         {
@@ -143,7 +145,7 @@ public class UserSelectScreen : MonoBehaviour
 
     private IEnumerator LoadUsersFromServer()
     {
-        SetStatus("Cargando usuarios...");
+        SetStatus("Carregant usuaris...");
 
         yield return StartCoroutine(UserAPI.GetUsers(
             onSuccess: loadedUsers =>
@@ -152,12 +154,12 @@ public class UserSelectScreen : MonoBehaviour
                 users.AddRange(loadedUsers);
 
                 RefreshList();
-                SetStatus(users.Count == 0 ? "No hay usuarios." : "");
+                SetStatus(users.Count == 0 ? "No hi ha usuaris." : "");
             },
             onError: err =>
             {
-                Debug.LogError("Error cargando usuarios: " + err);
-                SetStatus("Error cargando usuarios: " + err);
+                Debug.LogError("Error carregant usuaris: " + err);
+                SetStatus("Error carregant usuaris: " + err);
             }
         ));
     }
@@ -174,7 +176,7 @@ public class UserSelectScreen : MonoBehaviour
 
             if (rowUI == null)
             {
-                Debug.LogError("UserRowUI no encontrado en prefab");
+                Debug.LogError("No s'ha trobat UserRowUI al prefab");
                 continue;
             }
 
@@ -196,7 +198,7 @@ public class UserSelectScreen : MonoBehaviour
 
         if (string.IsNullOrEmpty(nom))
         {
-            SetStatus("Introduce un nombre.");
+            SetStatus("Introdueix un nom.");
             return;
         }
 
@@ -209,7 +211,7 @@ public class UserSelectScreen : MonoBehaviour
         bool menuMansActiu = true;
         bool particulesActives = true;
 
-        SetStatus("Creando usuario...");
+        SetStatus("Creant usuari...");
 
         StartCoroutine(UserAPI.CreateUser(
             nom,
@@ -231,34 +233,34 @@ public class UserSelectScreen : MonoBehaviour
             },
             onError: err =>
             {
-                Debug.LogError("Error creando usuario: " + err);
-                SetStatus("Error creando usuario: " + err);
+                Debug.LogError("Error creant l'usuari: " + err);
+                SetStatus("Error creant l'usuari: " + err);
             }
         ));
     }
 
     private IEnumerator UpdateUserOnServer(User editedUser)
     {
-        SetStatus("Guardando cambios...");
+        SetStatus("Desant canvis...");
 
         yield return StartCoroutine(UserAPI.UpdateUser(
             editedUser,
             onSuccess: () =>
             {
-                SetStatus("Usuario actualizado.");
+                SetStatus("Usuari actualitzat.");
                 StartCoroutine(LoadUsersFromServer());
             },
             onError: err =>
             {
-                Debug.LogError("Error actualizando usuario: " + err);
-                SetStatus("Error actualizando usuario: " + err);
+                Debug.LogError("Error actualitzant l'usuari: " + err);
+                SetStatus("Error actualitzant l'usuari: " + err);
             }
         ));
     }
 
     private IEnumerator DeleteUserFromServer(User user)
     {
-        SetStatus("Eliminando usuario...");
+        SetStatus("Eliminant usuari...");
 
         yield return StartCoroutine(UserAPI.DeleteUser(
             user.id_usuari,
@@ -279,8 +281,8 @@ public class UserSelectScreen : MonoBehaviour
             },
             onError: err =>
             {
-                Debug.LogError("Error eliminando usuario: " + err);
-                SetStatus("Error eliminando usuario: " + err);
+                Debug.LogError("Error eliminant l'usuari: " + err);
+                SetStatus("Error eliminant l'usuari: " + err);
             }
         ));
     }
@@ -305,16 +307,13 @@ public class UserSelectScreen : MonoBehaviour
         if (infoPopup != null)
         {
             SetInfoPopupVisible(true);
-
-            UserSessionInfoCanvas popupSessionInfoCanvas = infoPopup.GetComponentInChildren<UserSessionInfoCanvas>(true);
-            if (popupSessionInfoCanvas != null)
-                sessionInfoCanvas = popupSessionInfoCanvas;
+            AutoWireInfoPopupReferences();
         }
 
         if (sessionInfoCanvas == null)
         {
             Debug.LogWarning("No hay UserSessionInfoCanvas asignado en UserSelectScreen.");
-            SetStatus("Falta asignar el canvas de sesiones.");
+            SetStatus("Falta assignar el canvas de sessions.");
             return;
         }
 
@@ -324,13 +323,37 @@ public class UserSelectScreen : MonoBehaviour
         sessionInfoCanvas.Show(user);
     }
 
+    private void AutoWireInfoPopupReferences()
+    {
+        if (sessionInfoCanvas == null && infoPopup != null)
+            sessionInfoCanvas = infoPopup.GetComponentInChildren<UserSessionInfoCanvas>(true);
+
+        if (sessionInfoCanvas == null)
+            return;
+
+        if (infoPopup == null && sessionInfoCanvas.canvasRoot != null)
+            infoPopup = sessionInfoCanvas.canvasRoot;
+
+        if (infoPopupContent == null || infoPopupContent == sessionInfoCanvas.sessionsContent)
+        {
+            ScrollRect scrollRect = sessionInfoCanvas.sessionsScrollRect;
+            if (scrollRect != null)
+                infoPopupContent = scrollRect.GetComponent<RectTransform>();
+        }
+    }
+
+    private void OnValidate()
+    {
+        AutoWireInfoPopupReferences();
+    }
+
     private void RefreshSelectedLabel()
     {
         if (selectedUserText == null) return;
 
         selectedUserText.text = string.IsNullOrEmpty(SessionUser.SelectedUserName)
-            ? "Usuario actual: (ninguno)"
-            : $"Usuario actual: {SessionUser.SelectedUserName} | {RoomLabel(SessionUser.SelectedRoomType)} | {PostureLabel(SessionUser.SelectedInitialPosture)}";
+            ? "Usuari actual: (cap)"
+            : $"Usuari actual: {SessionUser.SelectedUserName} | {RoomLabel(SessionUser.SelectedRoomType)} | {PostureLabel(SessionUser.SelectedInitialPosture)}";
     }
 
     private void SetStatus(string message)
@@ -353,12 +376,12 @@ public class UserSelectScreen : MonoBehaviour
     {
         if (selectedUser == null || SessionUser.SelectedUserId <= 0)
         {
-            SetStatus("Selecciona un usuario.");
+            SetStatus("Selecciona un usuari.");
             return;
         }
 
         if (headsetSearchText != null)
-            headsetSearchText.text = "Buscando casco...";
+            headsetSearchText.text = "Cercant el visor...";
 
         if (connectionPopup != null)
             SetConnectionPopupVisible(true);
@@ -370,7 +393,7 @@ public class UserSelectScreen : MonoBehaviour
     {
         if (selectedUser == null)
         {
-            SetStatus("Selecciona un usuario.");
+            SetStatus("Selecciona un usuari.");
             return;
         }
 
@@ -394,7 +417,7 @@ public class UserSelectScreen : MonoBehaviour
     {
         if (selectedUser == null)
         {
-            SetStatus("Selecciona un usuario.");
+            SetStatus("Selecciona un usuari.");
             return;
         }
 
@@ -418,7 +441,7 @@ public class UserSelectScreen : MonoBehaviour
             infoSelectedButton.interactable = hasSelection;
 
         if (headsetSearchText != null)
-            headsetSearchText.text = hasSelection ? "Preparado para buscar casco." : "";
+            headsetSearchText.text = hasSelection ? "Preparat per cercar el visor." : "";
     }
 
     private void SetCreateDialogVisible(bool visible)
@@ -672,7 +695,7 @@ public class UserSelectScreen : MonoBehaviour
     private static string RoomLabel(string roomType)
     {
         if (roomType == RoomAdult)
-            return "Adulto";
+            return "Adult";
 
         if (roomType == RoomChild)
             return "Infantil";
@@ -682,6 +705,6 @@ public class UserSelectScreen : MonoBehaviour
 
     private static string PostureLabel(string posture)
     {
-        return posture == SittingPosture ? "Sentado" : "De pie";
+        return posture == SittingPosture ? "Assegut" : "Dret";
     }
 }

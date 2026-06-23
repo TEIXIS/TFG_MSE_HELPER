@@ -38,6 +38,10 @@ public class DisplayServers : MonoBehaviour
 	[Header("Search timing")]
 	public float searchTimeoutSeconds = 20f;
 	public bool autoConnectSingleServer = false;
+	[Tooltip("Si esta activo, una perdida de conexion cierra la sesion. Dejalo desactivado para no cortar la sesion si la tablet se suspende.")]
+	public bool endSessionOnDisconnect = false;
+	[Tooltip("Si esta activo, una perdida de conexion vuelve a la pantalla de seleccion de usuario.")]
+	public bool returnToUserSelectionOnDisconnect = false;
 
 	private float searchTimer = 0f;
 	private bool showingNoServers = false;
@@ -65,6 +69,7 @@ public class DisplayServers : MonoBehaviour
 		}
 
 		connection.RegisterOnDisconnectCallback(OnDisconnectError);
+		connection.RegisterOnRemoteCloseCallback(OnRemoteApplicationClosed);
 
 		BeginSearch();
 	}
@@ -180,14 +185,28 @@ public class DisplayServers : MonoBehaviour
 	// Call when the connection is closed by the server
 	public void OnDisconnectError() 
 	{
+		SessionTracker sessionTracker = SessionTracker.Instance;
+		if (endSessionOnDisconnect && sessionTracker != null)
+			sessionTracker.EndSession("Visor desconectado.");
+
 		lanDiscovery.ResetState();
 		loadingText.text = text_lookingForServers;
 		ClearPanel();
-		ReturnToSelectedUserReadyState();
+		if (returnToUserSelectionOnDisconnect)
+			ReturnToSelectedUserReadyState();
 		errorText.text = text_disconnectError;
 		errorText.gameObject.SetActive(true);
 		StartCoroutine(FadeErrorTextOut());
 		BeginSearch();
+	}
+
+	private void OnRemoteApplicationClosed()
+	{
+		// Este callback solo responde al mensaje enviado desde OnApplicationQuit.
+		// Perder el foco de la tablet no llega aqui ni cierra una sesion.
+		SessionTracker sessionTracker = SessionTracker.Instance;
+		if (sessionTracker != null)
+			StartCoroutine(sessionTracker.EndSessionAndWait("Visor cerrado."));
 	}
 
 	private void ReturnToSelectedUserReadyState()
